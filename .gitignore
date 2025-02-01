@@ -1,0 +1,47 @@
+# 📌 Node.js dependencies
+node_modules/
+npm-debug.log
+yarn-error.log
+package-lock.json
+yarn.lock
+
+# 📌 Logs & Debugging
+logs
+*.log
+log-*.log
+debug.log
+nohup.out
+
+# 📌 Environment & Credentials (!!! NU URCA DATE SENSIBILE PE GITHUB !!!)
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+firebase.json
+firestore.rules
+firestore.indexes.json
+.secret
+credentials.json
+
+# 📌 IDEs & Editors
+.vscode/
+.idea/
+.DS_Store
+
+# 📌 Firebase & Cloud Functions
+functions/node_modules/
+functions/lib/
+functions/package-lock.json
+
+# 📌 Compiled & Temporary Files
+dist/
+build/
+coverage/
+tmp/
+*.cache
+*.swp
+
+# 📌 OS Files
+Thumbs.db
+.DS_Store
