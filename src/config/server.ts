@@ -1,5 +1,5 @@
 import express from "express";
-import stocksRouter from "../routes/stocksRouter";
+import stocksRouter from "../routes/stocksRoutes";
 
 const app = express();
 app.use(express.json());
