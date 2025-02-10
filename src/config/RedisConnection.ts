@@ -1,21 +1,35 @@
-import IORedis from "ioredis";
+import { createClient, RedisClientType } from "redis";
+import { RedisConfig } from "./RedisConfig";
+import LoggerService from "../services/LoggerService";
 
+/**
+ * ✅ Singleton pentru conexiunea Redis
+ */
 class RedisConnection {
-  private static instance: IORedis;
+  private static instance: RedisClientType | null = null;
 
-  private constructor() {}
+  private constructor() {} // 🔹 Constructor privat pentru a preveni instanțierea directă
 
-  public static getInstance(): IORedis {
-    if (!RedisConnection.instance) {
-      RedisConnection.instance = new IORedis({
-        host: "127.0.0.1",
-        port: 6379,
-        password: process.env.REDIS_PASSWORD,
-        maxRetriesPerRequest: null,
+  /**
+   * ✅ Inițializează și returnează conexiunea Redis
+   */
+  public static getInstance(): RedisClientType {
+    if (!this.instance) {
+      this.instance = createClient({
+        url: RedisConfig.url,
+        socket: { reconnectStrategy: RedisConfig.reconnectStrategy },
+      });
+
+      this.instance.on("connect", () => LoggerService.logInfo("🔗 Connected to Redis"));
+      this.instance.on("error", (err) => LoggerService.logError("❌ Redis Error:", err));
+
+      this.instance.connect().catch((error) => {
+        LoggerService.logError("❌ Failed to connect to Redis:", error);
       });
     }
-    return RedisConnection.instance;
+
+    return this.instance;
   }
 }
 
-export default RedisConnection.getInstance(); // 🔹 Exportăm instanța direct
+export default RedisConnection;

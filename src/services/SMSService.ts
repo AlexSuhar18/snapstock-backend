@@ -4,7 +4,7 @@ import LoggerService from "../services/LoggerService";
 /**
  * ✅ Tipuri pentru providerii validați
  */
-type SMSProvider = "twilio" | "vonage" | "plivo"; // ✅ Folosim "vonage" în loc de "nexmo"
+type SMSProvider = "twilio" | "nexmo" | "plivo";
 
 class SMSService {
   private client;
@@ -13,22 +13,11 @@ class SMSService {
   private backupProvider: SMSProvider | null;
 
   constructor() {
-    const availableProviders: SMSProvider[] = ["twilio", "vonage", "plivo"];
+    // 🔹 Setăm providerii din environment variables
+    this.primaryProvider = (process.env.SMS_PROVIDER?.toLowerCase() as SMSProvider) || "twilio";
+    this.backupProvider = (process.env.BACKUP_SMS_PROVIDER?.toLowerCase() as SMSProvider) || null;
 
-    // 🔹 Verificăm dacă providerul este valid
-    this.primaryProvider = availableProviders.includes(process.env.SMS_PROVIDER as SMSProvider)
-      ? (process.env.SMS_PROVIDER as SMSProvider)
-      : "twilio";
-
-    this.backupProvider = availableProviders.includes(process.env.BACKUP_SMS_PROVIDER as SMSProvider)
-      ? (process.env.BACKUP_SMS_PROVIDER as SMSProvider)
-      : null;
-
-    if (!availableProviders.includes(this.primaryProvider)) {
-      throw new Error(`❌ Invalid SMS provider: ${this.primaryProvider}`);
-    }
-
-    // ✅ Inițializăm clientul și numărul de trimitere
+    // 🔹 Inițializăm clientul principal
     this.client = SMSConfig.getClient(this.primaryProvider);
     this.senderNumber = SMSConfig.getSenderNumber(this.primaryProvider);
     LoggerService.logInfo(`📲 Primary SMS Provider: ${this.primaryProvider}`);
