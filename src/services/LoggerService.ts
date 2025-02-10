@@ -1,26 +1,21 @@
 import winston from "winston";
-import dotenv from "dotenv";
-
-dotenv.config();
+import LoggerConfig from "../config/LoggerConfig";
 
 /**
- * ✅ Serviciu pentru logare centralizată
+ * ✅ Serviciu pentru logare centralizată (fără erori globale)
  */
 class LoggerService {
   private static logger: winston.Logger;
 
-  private constructor() {} // 🔹 Constructor privat pentru Singleton
+  private constructor() {} // 🔹 Singleton
 
   /**
-   * ✅ Inițializează logger-ul (Singleton Pattern)
+   * ✅ Inițializează logger-ul (fără erori globale)
    */
   private static init() {
     if (!this.logger) {
-      const logLevel = process.env.LOG_LEVEL || "info"; // 🔹 Setează nivelul de logare
-      const logToFile = process.env.LOG_TO_FILE === "true"; // 🔹 Activează logarea în fișier dacă este setat
-
       this.logger = winston.createLogger({
-        level: logLevel,
+        level: LoggerConfig.logLevel,
         format: winston.format.combine(
           winston.format.timestamp(),
           winston.format.printf(({ timestamp, level, message }) => {
@@ -28,58 +23,66 @@ class LoggerService {
           })
         ),
         transports: [
-          new winston.transports.Console(), // ✅ Log în terminal
-          ...(logToFile
+          new winston.transports.Console(),
+          new winston.transports.File({ filename: "logs/app.log", level: "info" }),
+          ...(LoggerConfig.logToFile
             ? [new winston.transports.File({ filename: "logs/error.log", level: "error" })]
-            : []),
+            : [])
         ],
       });
 
-      console.log(`📝 Logger initialized with level: ${logLevel}, Log to file: ${logToFile}`);
+      console.log(`📝 Logger initialized: Level ${LoggerConfig.logLevel}, Log to file: ${LoggerConfig.logToFile}`);
     }
   }
 
   /**
-   * ✅ Logare de tip INFO
+   * ✅ Logare INFO cu opțiunea de a include detalii suplimentare
    */
-  public static logInfo(message: string) {
+  public static logInfo(message: string, details?: any) {
     this.init();
-    this.logger.info(message);
+    if (details) {
+      this.logger.info(`${message} | Details: ${JSON.stringify(details)}`);
+    } else {
+      this.logger.info(message);
+    }
   }
 
   /**
-   * ✅ Logare de tip ERROR
+   * ✅ Logare ERROR cu detalii suplimentare
    */
   public static logError(message: string, error?: any) {
     this.init();
-    this.logger.error(message);
-    if (error) console.error(error);
-  }
-
-  /**
-   * ✅ Logare de tip WARN
-   */
-  public static logWarn(message: string) {
-    this.init();
-    this.logger.warn(message);
-  }
-
-  /**
-   * ✅ Logare de tip DEBUG (pentru dezvoltare)
-   */
-  public static logDebug(message: string) {
-    if (process.env.LOG_LEVEL === "debug") {
-      this.init();
-      this.logger.debug(message);
+    if (error) {
+      this.logger.error(`${message} | Error: ${JSON.stringify(error)}`);
+    } else {
+      this.logger.error(message);
     }
   }
 
   /**
-   * ✅ Logare evenimente pentru integrare cu sisteme de monitorizare
+   * ✅ Logare WARNING cu opțiunea de a include detalii suplimentare
    */
-  public static logEvent(eventName: string, details?: any) {
+  public static logWarn(message: string, details?: any) {
     this.init();
-    this.logger.info(`📢 EVENT: ${eventName}`, details);
+    if (details) {
+      this.logger.warn(`${message} | Details: ${JSON.stringify(details)}`);
+    } else {
+      this.logger.warn(message);
+    }
+  }
+
+  /**
+   * ✅ Logare DEBUG pentru debugging avansat
+   */
+  public static logDebug(message: string, details?: any) {
+    if (LoggerConfig.logLevel === "debug") {
+      this.init();
+      if (details) {
+        this.logger.debug(`${message} | Details: ${JSON.stringify(details)}`);
+      } else {
+        this.logger.debug(message);
+      }
+    }
   }
 }
 
