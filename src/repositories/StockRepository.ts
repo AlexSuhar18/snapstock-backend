@@ -1,91 +1,128 @@
 import FirebaseConfig from "../config/firebase";
-import { Stock } from "../models/stocks";
+import { Stock } from "../models/stocksModel";
 import { Firestore } from "firebase-admin/firestore";
+import BaseRepository from "./BaseRepository";
+import { IStockRepository } from "./Interfaces/IStockRepository";
+import LoggerService from "../services/LoggerService";
+import PluginManager from "../core/PluginManager";
 
 const db = FirebaseConfig.getFirestore();
 const STOCK_COLLECTION = "stocks";
 
-export class StockRepository {
-    /**
-     * ✅ Creează un nou stoc în Firestore
-     */
-    static async createStock(stockData: Stock): Promise<Stock> {
-        const stockRef = db.collection(STOCK_COLLECTION).doc();
-        stockData.id = stockRef.id; // 🔹 Asignăm ID-ul generat automat
-        await stockRef.set(stockData);
-        return stockData;
-    }
+class StockRepository
+  extends BaseRepository<Stock>
+  implements IStockRepository
+{
+  constructor() {
+    super(STOCK_COLLECTION);
+  }
 
-    /**
-     * ✅ Actualizează cantitatea unui stoc
-     */
-    static async updateStock(stockId: string, quantity: number): Promise<{ id: string; quantity: number }> {
-        await db.collection(STOCK_COLLECTION).doc(stockId).update({
-            quantity,
-            updatedAt: new Date().toISOString(),
-        });
-        return { id: stockId, quantity };
+  private checkModuleActive() {
+    if (!PluginManager.isModuleActive("stocks")) {
+      throw new Error("Stocks module is disabled");
     }
+  }
 
-    /**
-     * ✅ Obține toate stocurile active
-     */
-    static async getAllStocks(): Promise<Stock[]> {
-        const snapshot = await db.collection(STOCK_COLLECTION).where("deletedAt", "==", null).get();
-        return snapshot.docs.map((doc: FirebaseFirestore.QueryDocumentSnapshot) => new Stock({ id: doc.id, ...doc.data() }));
+  async create(stockData: Stock): Promise<Stock> {
+    this.checkModuleActive();
+    try {
+      const stockRef = db.collection(STOCK_COLLECTION).doc();
+      stockData.id = stockRef.id;
+      await stockRef.set(stockData);
+      LoggerService.logInfo(`📦 Stock created: ${stockData.id}`);
+      return stockData;
+    } catch (error) {
+      LoggerService.logError("❌ Error creating stock", error);
+      throw new Error("Error creating stock");
     }
+  }
 
-    /**
-     * ✅ Obține un stoc după ID
-     */
-    static async getStockById(stockId: string): Promise<Stock | null> {
-        const doc = await db.collection(STOCK_COLLECTION).doc(stockId).get();
-        return doc.exists ? new Stock({ id: doc.id, ...doc.data() }) : null;
+  async update(id: string, stockData: Partial<Stock>): Promise<void> {
+    this.checkModuleActive();
+    try {
+      await db.collection(STOCK_COLLECTION).doc(id).update(stockData);
+      LoggerService.logInfo(`📦 Stock updated: ${id}`);
+    } catch (error) {
+      LoggerService.logError("❌ Error updating stock", error);
+      throw new Error("Error updating stock");
     }
+  }
 
-    /**
-     * ✅ Marchează un stoc ca fiind șters (Soft Delete)
-     */
-    static async softDeleteStock(stockId: string): Promise<void> {
-        await db.collection(STOCK_COLLECTION).doc(stockId).update({
-            deletedAt: new Date().toISOString(),
-            notified: false,
-        });
-    }
+  async getAll(): Promise<Stock[]> {
+    this.checkModuleActive();
+    return await super.getAll();
+  }
 
-    /**
-     * ✅ Restaurează un stoc șters
-     */
-    static async restoreStock(stockId: string): Promise<void> {
-        await db.collection(STOCK_COLLECTION).doc(stockId).update({
-            deletedAt: null,
-            notified: false,
-        });
-    }
+  async getById(id: string): Promise<Stock | null> {
+    this.checkModuleActive();
+    return await super.getById(id);
+  }
 
-    /**
-     * ✅ Șterge un stoc permanent
-     */
-    static async deleteStock(stockId: string): Promise<void> {
-        await db.collection(STOCK_COLLECTION).doc(stockId).delete();
-    }
+  async delete(id: string): Promise<void> {
+    this.checkModuleActive();
+    return await super.delete(id);
+  }
 
-    /**
-     * ✅ Obține toate stocurile șterse (Soft Delete)
-     */
-    static async getDeletedStocks(): Promise<Stock[]> {
-        const snapshot = await db.collection(STOCK_COLLECTION).where("deletedAt", "!=", null).get();
-        return snapshot.docs.map((doc: FirebaseFirestore.QueryDocumentSnapshot) => new Stock({ id: doc.id, ...doc.data() }));
+  async softDeleteStock(id: string): Promise<void> {
+    this.checkModuleActive();
+    try {
+      await db
+        .collection(STOCK_COLLECTION)
+        .doc(id)
+        .update({ deletedAt: new Date().toISOString(), notified: false });
+      LoggerService.logInfo(`🗑️ Stock soft-deleted: ${id}`);
+    } catch (error) {
+      LoggerService.logError("❌ Error soft-deleting stock", error);
+      throw new Error("Error soft-deleting stock");
     }
+  }
 
-    /**
-     * ✅ Generează raport de stocuri
-     */
-    static async getStockReport(): Promise<{ totalItems: number; lowStockItems: Stock[] }> {
-        const stocks = await this.getAllStocks();
-        return {
-            totalItems: stocks.length,
-            lowStockItems: stocks.filter((stock) => stock.quantity < 10), // 🔹 Produse cu stoc redus
-        };
+  async restoreStock(id: string): Promise<void> {
+    this.checkModuleActive();
+    try {
+      await db
+        .collection(STOCK_COLLECTION)
+        .doc(id)
+        .update({ deletedAt: null, notified: false });
+      LoggerService.logInfo(`♻️ Stock restored: ${id}`);
+    } catch (error) {
+      LoggerService.logError("❌ Error restoring stock", error);
+      throw new Error("Error restoring stock");
     }
+  }
+
+  async getDeletedStocks(): Promise<Stock[]> {
+    this.checkModuleActive();
+    try {
+      const snapshot = await db
+        .collection(STOCK_COLLECTION)
+        .where("deletedAt", "!=", null)
+        .get();
+      return snapshot.docs.map(
+        (doc) => new Stock({ id: doc.id, ...doc.data() })
+      );
+    } catch (error) {
+      LoggerService.logError("❌ Error fetching deleted stocks", error);
+      throw new Error("Error fetching deleted stocks");
+    }
+  }
+
+  async getStockReport(): Promise<{
+    totalItems: number;
+    lowStockItems: Stock[];
+  }> {
+    this.checkModuleActive();
+    try {
+      const stocks = await this.getAll();
+      return {
+        totalItems: stocks.length,
+        lowStockItems: stocks.filter((stock) => stock.quantity < 10),
+      };
+    } catch (error) {
+      LoggerService.logError("❌ Error generating stock report", error);
+      throw new Error("Error generating stock report");
+    }
+  }
 }
+
+export default new StockRepository();

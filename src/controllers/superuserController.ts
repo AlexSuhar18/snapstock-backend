@@ -1,174 +1,159 @@
-import {NextFunction, Request, Response} from 'express';
-import { getSuperuser, setSuperuser, deleteSuperuser, cloneSuperuser, getAllSuperusers } from '../models/superuserModel';
-import { SUPERUSER_DOC_ID, SUPERUSER_COLLECTION } from '../models/superuserModel';
-import { adminDb } from '../config/firebase';
+import { Request, Response, NextFunction } from 'express';
+import SuperuserService from '../services/SuperuserService';
+import LoggerService from '../services/LoggerService';
+import EventService from '../services/EventService';
+import { EventTypes } from "../events/EventTypes";
+import { BadRequestError, NotFoundError } from '../errors/CustomErrors';
 
-// Create a superuser - one time
-export const setupSuperuser = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export class SuperuserHandlers {
+  /**
+   * ✅ Creează un superuser
+   */
+  static async setupSuperuser(req: Request, res: Response, next: NextFunction) {
     try {
-        const { email, fullName } = req.body;
-        if (!email || !fullName) {
-            res.status(400).json({ message: "Email and full nama are required" });
-            return;
-        }
+      SuperuserHandlers.validateRequest(req, ['email', 'fullName']);
 
-        const created = await setSuperuser(email, fullName, "password");
-        if (!created) {
-            res.status(400).json({ message: "Superuser already exists" });
-            return;
-        }
-        res.status(201).json({ message: "Superuser created" });
+      const created = await SuperuserService.setupSuperuser({
+        email: req.body.email,
+        fullName: req.body.fullName,
+        password: 'password',
+      });
+
+      if (!created) {
+        throw new BadRequestError('Superuser already exists');
+      }
+
+      await EventService.emitEvent(EventTypes.SUPERUSER_SETUP, { 
+        superuserId: created.id, 
+        email: created.email 
+      });
+
+      LoggerService.logInfo(`✅ Superuser created: ${created.email}`);
+      res.status(201).json({ message: '✅ Superuser created successfully' });
     } catch (error) {
-        next(error);
+      LoggerService.logError('❌ Error setting up superuser', error);
+      next(error);
     }
-}
+  }
 
-// Get superuser details
-export const getSuperuserHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  /**
+   * ✅ Obține un superuser
+   */
+  static async getSuperuser(req: Request, res: Response, next: NextFunction) {
     try {
-        const superuser = await getSuperuser();
-        if (!superuser) {
-            res.status(404).json({ message: "Superuser not found" });
-            return
-        }
-        res.json(superuser);
-    }  catch (error) {
-        next(error);
-    }
-}
+      SuperuserHandlers.validateRequest(req, ['superuserId']);
 
-//Get all superusers
-export const getAllSuperusersHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-        const superusers = await getAllSuperusers();
+      const superuser = await SuperuserService.getSuperuser(req.params.superuserId);
+      if (!superuser) {
+        throw new NotFoundError('Superuser not found');
+      }
 
-        if (!superusers || superusers.length === 0) {
-            res.status(404).json({ message: "No superusers found" });
-            return;
-        }
-
-        const formattedSuperusers = superusers.map(user => ({
-            id: user.id,
-            email: user.email,
-            fullName: user.fullName,
-            createdAt: user.createdAt ? user.createdAt.toDate().toISOString() : null,
-            updatedAt: user.updatedAt ? user.updatedAt.toDate().toISOString() : null,
-            lastLogin: user.lastLogin ? user.lastLogin.toDate().toISOString() : null,
-            role: user.role,
-            isFounder: user.isFounder,
-            status: user.status,
-            permissions: {
-                canManageCustomers: user.permissions?.canManageCustomers ?? false,
-                canManageUsers: user.permissions?.canManageUsers ?? false,
-                canManageAccounts: user.permissions?.canManageAccounts ?? false,
-                canManagePlans: user.permissions?.canManagePlans ?? false,
-                canAccessAllData: user.permissions?.canAccessAllData ?? false,
-                canModifySettings: user.permissions?.canModifySettings ?? false,
-                canManageProducts: user.permissions?.canManageProducts ?? false,
-            },
-            security: {
-                twoFactorAuth: user.security?.twoFactorAuth ?? false,
-                password: "[HIDDEN]", // Evităm expunerea parolei
-                backupCodes: user.security?.backupCodes ?? [],
-            },
-            logs: user.logs?.map(log => ({
-                action: log.action,
-                timestamp: log.timestamp ? log.timestamp.toDate().toISOString() : null,
-                ipAddress: log.ipAddress,
-                details: log.details ?? {}
-            })) ?? [],
-            settings: {
-                theme: user.settings?.theme ?? "system",
-                language: user.settings?.language ?? "en",
-                notificationPreferences: {
-                    email: user.settings?.notificationPreferences?.email ?? true,
-                    sms: user.settings?.notificationPreferences?.sms ?? false,
-                }
-            },
-            cloneable: user.cloneable ?? false
-        }));
-
-        res.status(200).json(formattedSuperusers);
+      res.status(200).json(superuser);
     } catch (error) {
-        console.error("🚨 Error getting all superusers:", error);
-        next(error);
+      LoggerService.logError('❌ Error fetching superuser', error);
+      next(error);
     }
-};
+  }
 
-// Delete superuser - debug only
-export const deleteAllSuperuserHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  /**
+   * ✅ Obține toți superuserii
+   */
+  static async getAllSuperusers(req: Request, res: Response, next: NextFunction) {
     try {
-        const snapshot = await adminDb.collection(SUPERUSER_COLLECTION).get();
-        
-        const superusersToDelete = snapshot.docs
-            .filter(doc => doc.id !== SUPERUSER_DOC_ID) // 🔹 Exclude superuserul principal
-            .map(doc => doc.ref);
+      const superusers = await SuperuserService.getAllSuperusers();
+      if (!superusers || superusers.length === 0) {
+        throw new NotFoundError('No superusers found');
+      }
 
-        if (superusersToDelete.length === 0) {
-            res.status(400).json({ message: "No superusers to delete, only main superuser exists." });
-            return;
-        }
-
-        // 🔹 Ștergem fiecare superuser în afară de cel principal
-        const batch = adminDb.batch();
-        superusersToDelete.forEach(ref => batch.delete(ref));
-        await batch.commit();
-
-        res.status(200).json({ message: `Deleted ${superusersToDelete.length} superusers, except the main superuser.` });
+      res.status(200).json(superusers);
     } catch (error) {
-        console.error("🚨 Error deleting superusers: ", error);
-        next(error);
+      LoggerService.logError('❌ Error fetching all superusers', error);
+      next(error);
     }
-};
+  }
 
-export const deleteSuperuserHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  /**
+   * ✅ Șterge toți superuserii
+   */
+  static async deleteAllSuperusers(req: Request, res: Response, next: NextFunction) {
     try {
-        console.log("🛠️ DELETE request received at /admin/delete-superuser/:superuserId");
+      await SuperuserService.deleteAllSuperusers();
+      await EventService.emitEvent(EventTypes.ALL_SUPERUSERS_DELETED, {});
+      LoggerService.logInfo('🗑️ All superusers deleted');
 
-        const { superuserId } = req.params;
-        console.log("📌 Superuser ID received:", superuserId);
-
-        if (!superuserId) {
-            res.status(400).json({ message: "Superuser ID is required" });
-            return;
-        }
-
-        if (superuserId === "mainSuperuser") {
-            res.status(403).json({ message: "⛔ Cannot delete the main superuser" });
-            return;
-        }
-
-        const deleted = await deleteSuperuser(superuserId);
-        if (!deleted) {
-            res.status(404).json({ message: `❌ Superuser with ID ${superuserId} not found` });
-            return;
-        }
-
-        res.status(200).json({ message: `✅ Superuser with ID ${superuserId} deleted successfully` });
-
+      res.status(200).json({ message: '✅ All superusers deleted successfully' });
     } catch (error) {
-        console.error("🚨 Error deleting superuser:", error);
-        next(error);
+      LoggerService.logError('❌ Error deleting all superusers', error);
+      next(error);
     }
-};
+  }
 
-export const cloneSuperuserHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  /**
+   * ✅ Șterge un superuser
+   */
+  static async deleteSuperuser(req: Request, res: Response, next: NextFunction) {
     try {
-        const { email, fullName } = req.body;
-        if (!email || !fullName) {
-            res.status(400).json({ message: "Email and full fullName are required" });
-            return;
-        }
+      SuperuserHandlers.validateRequest(req, ['superuserId']);
+      const { superuserId } = req.params;
 
-        const cloned = await cloneSuperuser(email, fullName, "hashedPassword");
-        if (!cloned) {
-            res.status(400).json({ message: "Superuser not cloned" });
-            return;
-        }
+      if (superuserId === 'mainSuperuser') {
+        throw new BadRequestError('⛔ Cannot delete the main superuser');
+      }
 
-        res.status(201).json({ message: "Superuser cloned" });
+      await SuperuserService.deleteSuperuser(superuserId);
+
+      await EventService.emitEvent(EventTypes.SUPERUSER_DELETED, { 
+        superuserId 
+      });
+
+      LoggerService.logInfo(`🗑️ Superuser deleted: ID ${superuserId}`);
+
+      res.status(200).json({ message: `✅ Superuser with ID ${superuserId} deleted successfully` });
     } catch (error) {
-        next(error);
+      LoggerService.logError('❌ Error deleting superuser', error);
+      next(error);
     }
+  }
+
+  /**
+   * ✅ Clonează un superuser
+   */
+  static async cloneSuperuser(req: Request, res: Response, next: NextFunction) {
+    try {
+      SuperuserHandlers.validateRequest(req, ['email', 'fullName']);
+
+      const cloned = await SuperuserService.cloneSuperuser({
+        email: req.body.email,
+        fullName: req.body.fullName,
+      });
+
+      if (!cloned) {
+        throw new BadRequestError('Superuser not cloned');
+      }
+
+      await EventService.emitEvent(EventTypes.SUPERUSER_CLONED, { 
+        superuserId: cloned.id, 
+        email: cloned.email 
+      });
+
+      LoggerService.logInfo(`🔄 Superuser cloned: ${cloned.email}`);
+
+      res.status(201).json({ message: '✅ Superuser cloned successfully' });
+    } catch (error) {
+      LoggerService.logError('❌ Error cloning superuser', error);
+      next(error);
+    }
+  }
+
+  /**
+   * 🔹 Metodă privată pentru validarea datelor din request
+   */
+  private static validateRequest(req: Request, requiredFields: string[]): void {
+    for (const field of requiredFields) {
+      if (!req.body[field] && !req.params[field]) {
+        throw new BadRequestError(`Missing required field: ${field}`);
+      }
+    }
+  }
 }
 

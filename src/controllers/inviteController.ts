@@ -1,150 +1,151 @@
-import { Request, Response } from "express";
-import asyncHandler from "../middlewares/asyncHandler";
-import { InvitationService } from "../services/InvitationService";
-import { NotificationService } from "../services/NotificationService";
-import { ValidationService } from "../services/ValidationService";
-import { Invitation } from "../models/invitation";
-import * as Sentry from "@sentry/node";
+import { Request, Response, NextFunction } from 'express';
+import InvitationService from '../services/InvitationService';
+import LoggerService from '../services/LoggerService';
+import EventService from '../services/EventService';
+import { EventTypes } from '../events/EventTypes';
+import { BadRequestError, NotFoundError } from '../errors/CustomErrors';
 
-Sentry.init({ dsn: "SENTRY_DSN" });
+class InviteController {
+  /**
+   * ✅ Trimite o invitație nouă
+   */
+  static async sendInvite(req: Request, res: Response, next: NextFunction) {
+    try {
+      const newInvitation = await InvitationService.createInvitation(req.body);
 
-/**
- * ✅ Controller pentru gestionarea invitațiilor
- */
-export class InvitationController {
-    /**
-     * ✅ Trimitere invitație nouă
-     */
-    static sendInvite = asyncHandler(async (req: Request, res: Response) => {
-        let { email, role, invitedBy, invitedByName, inviteMethod, phoneNumber } = req.body;
-        email = req.body.email || req.params.email;
-        
-        if (!email) {
-            return res.status(400).json({ message: "Email is required." });
-        }
-        
-        if (!ValidationService.isAllowedDomain(email)) {
-            return res.status(400).json({ message: "Email domain not allowed." });
-        }
+      // 🔥 Emitere eveniment
+      await EventService.emitEvent(EventTypes.INVITATION_CREATED, {
+        email: newInvitation.email,
+        inviteId: newInvitation.id, // ✅ CORECTAT
+      });
 
-        const existingUser = await InvitationService.getUserByEmail(email);
-        if (existingUser) {
-            return res.status(400).json({ message: `User with email ${email} already exists.` });
-        }
+      LoggerService.logInfo(`📩 Invitation sent to: ${newInvitation.email}`);
+      res.status(201).json(newInvitation);
+    } catch (error) {
+      LoggerService.logError('❌ Error sending invitation', error);
+      next(error);
+    }
+  }
 
-        const invitation = await InvitationService.createInvitation(req.body);
-        await NotificationService.sendInvitation(invitation);
-        
-        res.status(201).json({ message: "Invitation sent successfully", inviteToken: invitation.inviteToken });
-    });
+  /**
+   * ✅ Verifică o invitație după token
+   */
+  static async verifyInvite(req: Request, res: Response, next: NextFunction) {
+    try {
+      const invitation = await InvitationService.getByToken(req.params.token);
+      if (!invitation) {
+        throw new NotFoundError('Invalid or expired invitation');
+      }
+      res.status(200).json(invitation);
+    } catch (error) {
+      LoggerService.logError('❌ Error verifying invitation', error);
+      next(error);
+    }
+  }
 
-    /**
-     * ✅ Verificare invitație
-     */
-    static verifyInvite = asyncHandler(async (req: Request, res: Response) => {
-        const { token } = req.params;
-        const invitation = await InvitationService.getByToken(token);
-        
-        if (!invitation) {
-            return res.status(404).json({ message: "Invalid or expired invitation" });
-        }
-        
-        if (invitation.status === "revoked") {
-            return res.status(403).json({ message: "This invitation has been revoked." });
-        }
-        
-        if (new Date(invitation.expiresAt) < new Date()) {
-            await InvitationService.expireInvitations();
-            return res.status(410).json({ message: "This invitation has expired." });
-        }
-        
-        res.status(200).json(invitation);
-    });
-    
-    /**
-     * ✅ Acceptare invitație
-     */
-    static acceptInvite = asyncHandler(async (req: Request, res: Response) => {
-        const { token } = req.params;
-        const { fullName, password } = req.body;
-        
-        if (!fullName || !password) {
-            return res.status(400).json({ message: "Missing required fields: fullName, password" });
-        }
-        
-        if (!ValidationService.isStrongPassword(password)) {
-            return res.status(400).json({ message: "Weak password. Please use a stronger password." });
-        }
-        
-        const invitation = await InvitationService.getByToken(token);
-        if (!invitation) {
-            return res.status(404).json({ message: "Invalid or expired invitation" });
-        }
-        
-        const newUser = await InvitationService.acceptInvite(invitation, fullName, password, req);
-        await NotificationService.notifyAdmin(invitation);
-        
-        res.status(201).json({ message: "User registered successfully", user: newUser });
-    });
+  /**
+   * ✅ Acceptă o invitație
+   */
+  static async acceptInvite(req: Request, res: Response, next: NextFunction) {
+    try {
+      const acceptedInvitation = await InvitationService.acceptInvite(
+        req.body.invitation,
+        req.body.fullName,
+        req.body.password
+      );
 
-    /**
-     * ✅ Retrimitere invitație cu token nou
-     */
-    static resendInvite = asyncHandler(async (req: Request, res: Response) => {
-        let { email } = req.body;
-        email = email || req.params.email;
-        
-        if (!email) {
-            return res.status(400).json({ message: "Missing required field: email" });
-        }
-        
-        if (!ValidationService.isAllowedDomain(email)) {
-            return res.status(400).json({ message: "Email domain not allowed." });
-        }
-        
-        const invitation = await InvitationService.resendInvitation(email);
-        if (!invitation) {
-            return res.status(404).json({ message: "No pending invitation found." });
-        }
-        
-        await NotificationService.sendInvitation(invitation);
-        
-        res.status(200).json({ message: "Invitation resent successfully", inviteToken: invitation.inviteToken });
-    });
-    
-    /**
-     * ✅ Anulare invitație
-     */
-    static cancelInvite = asyncHandler(async (req: Request, res: Response) => {
-        const { token } = req.body;
-        
-        if (!token) {
-            return res.status(400).json({ message: "Missing invitation token" });
-        }
-        
-        await InvitationService.revokeInvitation(token);
-        
-        res.status(200).json({ message: "Invitation revoked successfully" });
-    });
-    
-    /**
-     * ✅ Obține toate invitațiile
-     */
-    static getAllInvitations = asyncHandler(async (req: Request, res: Response) => {
-        const { page = 1, pageSize = 10 } = req.query;
-        
-        const invitations = await InvitationService.getAllInvitations(Number(page), Number(pageSize));
-        
-        res.status(200).json(invitations);
-    });
-    
-    /**
-     * ✅ Obține dashboard invitații
-     */
-    static getInvitationsDashboard = asyncHandler(async (req: Request, res: Response) => {
-        const dashboardData = await InvitationService.getInvitationsDashboard();
-        res.status(200).json(dashboardData);
-    });
+      // 🔥 Emitere eveniment
+      await EventService.emitEvent(EventTypes.INVITATION_ACCEPTED, {
+        email: acceptedInvitation.email,
+        inviteId: acceptedInvitation.id, // ✅ CORECTAT
+      });
+
+      LoggerService.logInfo(`✅ Invitation accepted: ${acceptedInvitation.email}`);
+      res.status(200).json(acceptedInvitation);
+    } catch (error) {
+      LoggerService.logError('❌ Error accepting invitation', error);
+      next(error);
+    }
+  }
+
+  /**
+   * ✅ Resetează și retrimite o invitație
+   */
+  static async resendInvite(req: Request, res: Response, next: NextFunction) {
+    try {
+      const resentInvitation = await InvitationService.resendInvitation(req.params.email);
+
+      if (!resentInvitation) {
+        throw new NotFoundError(`No pending invitation found for email: ${req.params.email}`);
+      }
+
+      // 🔥 Emitere eveniment
+      await EventService.emitEvent(EventTypes.INVITATION_REMINDER_SENT, {
+        email: resentInvitation.email,
+        inviteId: resentInvitation.id, // ✅ CORECTAT
+      });
+
+      LoggerService.logInfo(`🔄 Invitation resent: ${resentInvitation.email}`);
+      res.status(200).json(resentInvitation);
+    } catch (error) {
+      LoggerService.logError('❌ Error resending invitation', error);
+      next(error);
+    }
+  }
+
+  /**
+   * ✅ Revocă o invitație
+   */
+  static async cancelInvite(req: Request, res: Response, next: NextFunction) {
+    try {
+      await InvitationService.revokeInvitation(req.params.token);
+
+      // 🔥 Emitere eveniment
+      await EventService.emitEvent(EventTypes.INVITATION_REVOKED, {
+        inviteId: req.params.token,
+        email: "Unknown",
+      });
+
+      LoggerService.logInfo(`🚫 Invitation revoked: ${req.params.token}`);
+      res.status(200).json({ message: 'Invitation revoked successfully' });
+    } catch (error) {
+      LoggerService.logError('❌ Error canceling invitation', error);
+      next(error);
+    }
+  }
+
+  /**
+   * ✅ Obține toate invitațiile
+   */
+  static async getAllInvitations(req: Request, res: Response, next: NextFunction) {
+    try {
+      const invitations = await InvitationService.getAllInvitations();
+      res.status(200).json(invitations);
+    } catch (error) {
+      LoggerService.logError('❌ Error fetching invitations', error);
+      next(error);
+    }
+  }
+
+  /**
+   * ✅ Expiră automat invitațiile vechi
+   */
+  static async expireInvitations(req: Request, res: Response, next: NextFunction) {
+    try {
+      await InvitationService.expireInvitations();
+
+      // 🔥 Emitere eveniment
+      await EventService.emitEvent(EventTypes.INVITATION_EXPIRED, {
+        inviteId: "Multiple Expired",
+      });
+
+      LoggerService.logInfo('⏳ Expired invitations processed');
+      res.status(200).json({ message: 'Expired invitations processed' });
+    } catch (error) {
+      LoggerService.logError('❌ Error expiring invitations', error);
+      next(error);
+    }
+  }
 }
 
-export default InvitationController;
+export default InviteController;

@@ -1,75 +1,109 @@
-import { Request, Response } from "express";
-import asyncHandler from "../middlewares/asyncHandler";
-import { StockService } from "../services/StockService";
+import { Request, Response, NextFunction } from 'express';
+import StockService from '../services/StockService';
 import { StockValidationService } from "../services/validation/StockValidationService";
-import LoggerService from "../services/LoggerService";
-import EventBus from "../events/EventBus";
+import EventService from '../services/EventService';
+import LoggerService from '../services/LoggerService';
+import { BadRequestError } from '../errors/CustomErrors';
+import { EventTypes } from '../events/EventTypes';
 
-/**
- * ✅ Controller pentru gestionarea stocurilor
- */
-export class StockController {
-    /**
-     * ✅ Adaugă un nou produs în stoc
-     */
-    static createStock = asyncHandler(async (req: Request, res: Response) => {
-        const { name, quantity, productId } = req.body;
+class StocksController {
+  /**
+   * ✅ Obține toate stocurile
+   */
+  async getStocks(req: Request, res: Response, next: NextFunction) {
+    try {
+      const stocks = await StockService.getAllStocks();
+      res.status(200).json(stocks);
+    } catch (error) {
+      LoggerService.logError('❌ Error fetching stocks', error);
+      next(error);
+    }
+  }
 
-        // 🔹 Validare date
-        StockValidationService.validateCreateStock(req.body);
+  /**
+   * ✅ Creează un nou stoc
+   */
+  async createStock(req: Request, res: Response, next: NextFunction) {
+    try {
+      this.validateRequest(req);
+      const newStock = await StockService.createStock(req.body);
+      
+      await EventService.emitEvent(EventTypes.STOCK_CREATED, {
+        stockId: newStock.id || "unknown_id",
+        name: newStock.name || "Unnamed Stock"
+      });         
+      res.status(201).json(newStock);
+    } catch (error) {
+      LoggerService.logError('❌ Error creating stock', error);
+      next(error);
+    }
+  }
 
-        const stock = await StockService.createStock({ name, quantity, productId });
+  /**
+   * ✅ Actualizează un stoc existent
+   */
+  async updateStock(req: Request, res: Response, next: NextFunction) {
+    try {
+      this.validateRequest(req);
+      const updatedStock = await StockService.updateStock(req.params.id, req.body);
 
-        // 🔹 Emitere eveniment pentru tracking
-        EventBus.emit("stock:created", { stockId: stock.id, name });
+      await EventService.emitEvent(EventTypes.STOCK_UPDATED, {
+        stockId: updatedStock.id,
+        quantity: updatedStock.quantity
+      });
+      res.status(200).json(updatedStock);
+    } catch (error) {
+      LoggerService.logError('❌ Error updating stock', error);
+      next(error);
+    }
+  }
 
-        LoggerService.logInfo(`📦 Stoc creat: ${name} (ID: ${stock.id})`);
-        res.status(201).json({ message: "Stock created successfully", stock });
-    });
+  /**
+   * ✅ Șterge un stoc
+   */
+  async deleteStock(req: Request, res: Response, next: NextFunction) {
+    try {
+      await StockService.deleteStock(req.params.id);
 
-    /**
-     * ✅ Actualizează cantitatea unui produs
-     */
-    static updateStock = asyncHandler(async (req: Request, res: Response) => {
-        const { stockId } = req.params;
-        const { quantity } = req.body;
+      await EventService.emitEvent(EventTypes.STOCK_DELETED, {
+        stockId: req.params.id
+      });
+      res.status(200).json({ message: '✅ Stock deleted successfully' });
+    } catch (error) {
+      LoggerService.logError('❌ Error deleting stock', error);
+      next(error);
+    }
+  }
 
-        StockValidationService.validateStockUpdate(req.body);
-        
-        const updatedStock = await StockService.updateStock(stockId, quantity);
+  /**
+   * ✅ Obține un raport detaliat despre stocuri
+   */
+  async getStockReport(req: Request, res: Response, next: NextFunction) {
+    try {
+      LoggerService.logInfo("📊 Generating stock report...");
 
-        EventBus.emit("stock:updated", { stockId, quantity });
-        LoggerService.logInfo(`📦 Stoc actualizat: ID ${stockId}, Nouă cantitate: ${quantity}`);
+      const stockReport = await StockService.generateStockReport();
+      
+      await EventService.emitEvent(EventTypes.STOCK_REPORT_GENERATED, { reportGeneratedAt: new Date().toISOString() });
 
-        res.status(200).json({ message: "Stock updated successfully", updatedStock });
-    });
+      LoggerService.logInfo("✅ Stock report generated successfully.");
+      res.status(200).json(stockReport);
+    } catch (error) {
+      LoggerService.logError("❌ Error generating stock report", error);
+      next(error);
+    }
+  }
 
-    /**
-     * ✅ Obține toate produsele din stoc
-     */
-    static getAllStocks = asyncHandler(async (req: Request, res: Response) => {
-        const stocks = await StockService.getAllStocks();
-        res.status(200).json(stocks);
-    });
-
-    /**
-     * ✅ Generare raport stocuri
-     */
-    static getStockReport = asyncHandler(async (req: Request, res: Response) => {
-        const report = await StockService.generateStockReport();
-        res.status(200).json(report);
-    });
-
-    /**
-     * ✅ Șterge un produs din stoc
-     */
-    static deleteStock = asyncHandler(async (req: Request, res: Response) => {
-        const { stockId } = req.params;
-        await StockService.deleteStock(stockId);
-
-        EventBus.emit("stock:deleted", { stockId });
-        LoggerService.logInfo(`🗑️ Stoc șters: ID ${stockId}`);
-
-        res.status(200).json({ message: "Stock deleted successfully" });
-    });
+  /**
+   * 🔹 Metodă privată pentru validarea datelor din request
+   */
+  private validateRequest(req: Request, isUpdate = false): void {
+    if (isUpdate) {
+      StockValidationService.validateStockUpdate(req.body);
+    } else {
+      StockValidationService.validateCreateStock(req.body);
+    }
+  }
 }
+
+export default new StocksController();

@@ -2,7 +2,8 @@ import QueueManager from "./QueueManager";
 
 class QueueMetricsManager {
   public static async logQueueMetrics(): Promise<void> {
-    const queue = QueueManager.getQueue(); // 🔹 Acum accesăm corect coada
+    const queueManager = await QueueManager; // ✅ Adăugăm `await`
+    const queue = queueManager.getQueue(); // 🔹 Acum accesăm corect coada
 
     const waiting = await queue.getWaitingCount();
     const active = await queue.getActiveCount();

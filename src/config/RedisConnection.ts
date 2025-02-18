@@ -11,9 +11,9 @@ class RedisConnection {
   private constructor() {} // 🔹 Constructor privat pentru a preveni instanțierea directă
 
   /**
-   * ✅ Inițializează și returnează conexiunea Redis
+   * ✅ Inițializează și returnează conexiunea Redis într-un format compatibil BullMQ
    */
-  public static getInstance(): RedisClientType {
+  public static async getInstance(): Promise<RedisClientType> {
     if (!this.instance) {
       this.instance = createClient({
         url: RedisConfig.url,
@@ -23,11 +23,12 @@ class RedisConnection {
       this.instance.on("connect", () => LoggerService.logInfo("🔗 Connected to Redis"));
       this.instance.on("error", (err) => LoggerService.logError("❌ Redis Error:", err));
 
-      this.instance.connect().catch((error) => {
+      try {
+        await this.instance.connect();
+      } catch (error) {
         LoggerService.logError("❌ Failed to connect to Redis:", error);
-      });
+      }
     }
-
     return this.instance;
   }
 }

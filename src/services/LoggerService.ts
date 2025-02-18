@@ -1,5 +1,7 @@
-import winston from "winston";
-import LoggerConfig from "../config/LoggerConfig";
+import winston from 'winston';
+import LoggerConfig from '../config/LoggerConfig';
+import EventService from '../services/EventService';
+import { EventTypes } from '../events/EventTypes';
 
 /**
  * ✅ Serviciu pentru logare centralizată (fără erori globale)
@@ -10,7 +12,7 @@ class LoggerService {
   private constructor() {} // 🔹 Singleton
 
   /**
-   * ✅ Inițializează logger-ul (fără erori globale)
+   * ✅ Inițializează logger-ul dacă nu există deja
    */
   private static init() {
     if (!this.logger) {
@@ -18,16 +20,14 @@ class LoggerService {
         level: LoggerConfig.logLevel,
         format: winston.format.combine(
           winston.format.timestamp(),
-          winston.format.printf(({ timestamp, level, message }) => {
-            return `[${timestamp}] ${level.toUpperCase()}: ${message}`;
-          })
+          winston.format.json()
         ),
         transports: [
           new winston.transports.Console(),
-          new winston.transports.File({ filename: "logs/app.log", level: "info" }),
+          new winston.transports.File({ filename: 'logs/app.log', level: 'info' }),
           ...(LoggerConfig.logToFile
-            ? [new winston.transports.File({ filename: "logs/error.log", level: "error" })]
-            : [])
+            ? [new winston.transports.File({ filename: 'logs/error.log', level: 'error' })]
+            : []),
         ],
       });
 
@@ -36,52 +36,44 @@ class LoggerService {
   }
 
   /**
-   * ✅ Logare INFO cu opțiunea de a include detalii suplimentare
+   * ✅ Logare INFO
    */
-  public static logInfo(message: string, details?: any) {
+  public static async logInfo(message: string, details?: any) {
     this.init();
-    if (details) {
-      this.logger.info(`${message} | Details: ${JSON.stringify(details)}`);
-    } else {
-      this.logger.info(message);
-    }
+    const logData = { level: 'info', message, details };
+    this.logger.info(logData);
+    await EventService.emitEvent(EventTypes.LOG_INFO, logData);
   }
 
   /**
-   * ✅ Logare ERROR cu detalii suplimentare
+   * ✅ Logare ERROR
    */
-  public static logError(message: string, error?: any) {
+  public static async logError(message: string, error?: any) {
     this.init();
-    if (error) {
-      this.logger.error(`${message} | Error: ${JSON.stringify(error)}`);
-    } else {
-      this.logger.error(message);
-    }
+    const logData = { level: 'error', message, error };
+    this.logger.error(logData);
+    await EventService.emitEvent(EventTypes.LOG_ERROR, logData);
   }
 
   /**
-   * ✅ Logare WARNING cu opțiunea de a include detalii suplimentare
+   * ✅ Logare WARNING
    */
-  public static logWarn(message: string, details?: any) {
+  public static async logWarn(message: string, details?: any) {
     this.init();
-    if (details) {
-      this.logger.warn(`${message} | Details: ${JSON.stringify(details)}`);
-    } else {
-      this.logger.warn(message);
-    }
+    const logData = { level: 'warn', message, details };
+    this.logger.warn(logData);
+    await EventService.emitEvent(EventTypes.LOG_WARN, logData);
   }
 
   /**
-   * ✅ Logare DEBUG pentru debugging avansat
+   * ✅ Logare DEBUG
    */
-  public static logDebug(message: string, details?: any) {
-    if (LoggerConfig.logLevel === "debug") {
+  public static async logDebug(message: string, details?: any) {
+    if (LoggerConfig.logLevel === 'debug') {
       this.init();
-      if (details) {
-        this.logger.debug(`${message} | Details: ${JSON.stringify(details)}`);
-      } else {
-        this.logger.debug(message);
-      }
+      const logData = { level: 'debug', message, details };
+      this.logger.debug(logData);
+      await EventService.emitEvent(EventTypes.LOG_DEBUG, logData);
     }
   }
 }
