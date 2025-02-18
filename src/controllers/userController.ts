@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import asyncHandler from "../middlewares/AsyncHandler";
+import asyncHandler from "../middlewares/asyncHandler";
 import { UserService } from "../services/UserService";
 import * as Sentry from "@sentry/node";
 

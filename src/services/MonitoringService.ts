@@ -1,17 +1,32 @@
-import LoggerConfig from "../config/LoggerConfig";
+import LoggerConfig from '../config/LoggerConfig';
+import EventService from '../services/EventService';
+import ModuleMiddleware from '../middlewares/ModuleMiddleware';
+import { EventTypes } from '../events/EventTypes';
 
 /**
  * ✅ Serviciu pentru logare externă (ex: DataDog, Sentry, LogServer)
  */
 class MonitoringService {
-  public static sendLog(eventName: string, details?: any) {
-    if (!LoggerConfig.logToExternal) return;
+  /**
+   * ✅ Trimite un log către un serviciu extern, utilizând middleware-ul
+   */
+  public static async sendLog(eventName: string, details?: any): Promise<void> {
+    try {
+      ModuleMiddleware.ensureModuleActive('monitoring'); // 🔹 Middleware în loc de PluginManager
 
-    fetch(LoggerConfig.externalLogEndpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ event: eventName, details })
-    }).catch((err) => console.error("❌ Failed to send log to external service:", err));
+      if (!LoggerConfig.logToExternal) return;
+
+      await fetch(LoggerConfig.externalLogEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event: eventName, details }),
+      });
+
+      await EventService.emitEvent(EventTypes.EXTERNAL_LOG_SENT, { eventName, details });
+    } catch (error) {
+      console.error('❌ Failed to send log to external service:', error);
+      await EventService.emitEvent(EventTypes.EXTERNAL_LOG_FAILED, { eventName, error });
+    }
   }
 }
 

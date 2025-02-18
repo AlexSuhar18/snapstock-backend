@@ -1,13 +1,18 @@
-import express from 'express';
-import { setupSuperuser, getSuperuserHandler, getAllSuperusersHandler, deleteAllSuperuserHandler, deleteSuperuserHandler, cloneSuperuserHandler } from '../controllers/superuserController';
+import { Router } from 'express';
+import ModuleMiddleware from '../middlewares/ModuleMiddleware';
+import { SuperuserHandlers } from '../controllers/superuserController';
 
-const router = express.Router();
+const router = Router();
 
-router.post('/setup-superuser', (req, res, next) => setupSuperuser(req, res, next).catch(next));
-router.get('/superuser', (req, res, next) => getSuperuserHandler(req, res, next).catch(next));
-router.get('/all-superusers', (req, res, next) => getAllSuperusersHandler(req, res, next).catch(next));
-router.post('/clone-superuser', (req, res, next) => cloneSuperuserHandler(req, res, next).catch(next));
-router.delete('/debug-delete-superuser', (req, res, next) => deleteAllSuperuserHandler(req, res, next).catch(next));
-router.delete('/delete-superuser/:superuserId', (req, res, next) => deleteSuperuserHandler(req, res, next).catch(next));
+// ✅ Middleware global pentru verificare modul activ
+router.use(ModuleMiddleware.checkModule('superusers'));
+
+// 🔹 Endpoints pentru gestionarea superuserilor
+router.post('/', SuperuserHandlers.setupSuperuser);
+router.get('/', SuperuserHandlers.getAllSuperusers);
+router.get('/:id', SuperuserHandlers.getSuperuser);
+router.delete('/', SuperuserHandlers.deleteAllSuperusers);
+router.delete('/:id', SuperuserHandlers.deleteSuperuser);
+router.post('/clone', SuperuserHandlers.cloneSuperuser);
 
 export default router;

@@ -15,6 +15,14 @@ export class UserService {
   static async getUserByEmail(email: string): Promise<User | null> {
     return await UserRepository.getByEmail(email);
   }
+
+  /**
+   * ✅ Verifică dacă un email este deja folosit
+   */
+  static async isEmailTaken(email: string): Promise<boolean> {
+    const user = await UserRepository.getByEmail(email);
+    return user !== null;
+  }
 }
 
 export default UserService;
