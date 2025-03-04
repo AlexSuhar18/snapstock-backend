@@ -1,106 +1,107 @@
-import StockRepository from "../repositories/StockRepository";
-import LoggerService from "../services/LoggerService";
 import EventService from "../services/EventService";
-import { BadRequestError } from "../errors/CustomErrors";
+import LoggerService from "../services/LoggerService";
+import StockRepository from "../repositories/StockRepository";
 import { EventTypes } from "../events/EventTypes";
-import { Stock } from "../models/stocksModel";
 import ModuleMiddleware from "../middlewares/ModuleMiddleware";
+import { StockValidationService } from "../services/validation/StockValidationService";
 
 class StockService {
   /**
-   * ✅ Creează un nou stoc
+   * ✅ Obține toate stocurile
    */
-  static async createStock(stockData: Partial<Stock>): Promise<Stock> {
+  static async getAllStocks() {
     ModuleMiddleware.ensureModuleActive("stocks");
-
-    if (!stockData.name || stockData.quantity === undefined) {
-      throw new BadRequestError("Missing required fields: name, quantity.");
-    }
-
-    const stock = await StockRepository.create(new Stock(stockData));
-
-    if (!stock.id) throw new Error("Stock ID is undefined after creation");
-
-    // 🔹 Emit event și log
-    await EventService.emitEvent(EventTypes.STOCK_CREATED, {
-      stockId: stock.id, // ✅ Asigură că este un string valid
-      name: stock.name,
-    });
-    await LoggerService.logInfo(`📦 Stock created: ${stock.name} (ID: ${stock.id})`);
-
-    return stock;
+    return await StockRepository.getAll();
   }
 
   /**
-   * ✅ Actualizează cantitatea unui stoc
+   * ✅ Creează un nou stoc
    */
-  static async updateStock(
-    stockId: string,
-    quantity: number
-  ): Promise<{ id: string; quantity: number }> {
-    ModuleMiddleware.ensureModuleActive("stocks");
-  
-    if (quantity < 0) throw new BadRequestError("Quantity cannot be negative.");
-  
-    await StockRepository.update(stockId, { quantity }); // ✅ Nu mai încercăm să salvăm valoarea returnată
-  
-    const updatedStock = await StockRepository.getById(stockId); // ✅ Obține stocul actualizat
-  
-    if (!updatedStock) {
-      throw new Error(`Stock with ID ${stockId} not found.`);
+  static async createStock(data: any) {
+    try {
+      ModuleMiddleware.ensureModuleActive("stocks");
+
+      // 🔍 Validăm datele înainte de creare
+      StockValidationService.validateCreateStock(data);
+
+      const newStock = await StockRepository.create(data);
+
+      // 🔥 Emitere eveniment
+      await EventService.emitEvent(EventTypes.STOCK_CREATED, {
+        stockId: newStock.id || "unknown_id",
+        name: newStock.name || "Unnamed Stock",
+      });
+
+      LoggerService.logInfo(`📦 New stock created: ${newStock.id}`);
+      return newStock;
+    } catch (error) {
+      LoggerService.logError("❌ Error creating stock", error);
+      throw error;
     }
-  
-    // 🔹 Emit event și log
-    await EventService.emitEvent(EventTypes.STOCK_UPDATED, { stockId, quantity });
-    await LoggerService.logInfo(`📦 Stock updated: ID ${stockId}, New quantity: ${quantity}`);
-  
-    return { id: stockId, quantity: updatedStock.quantity }; // ✅ Returnează cantitatea corect actualizată
-  }  
+  }
 
   /**
-   * ✅ Obține toate stocurile active
+   * ✅ Actualizează un stoc existent
    */
-  static async getAllStocks(): Promise<Stock[]> {
-    ModuleMiddleware.ensureModuleActive("stocks");
+  static async updateStock(id: string, data: any) {
+    try {
+      ModuleMiddleware.ensureModuleActive("stocks");
 
-    return await StockRepository.getAll();
+      // 🔍 Validăm datele înainte de update
+      StockValidationService.validateStockUpdate(data);
+
+      const updatedStock = await StockRepository.update(id, data);
+
+      await EventService.emitEvent(EventTypes.STOCK_UPDATED, {
+        stockId: updatedStock.id ?? "unknown_id",
+        quantity: updatedStock.quantity ?? 0,
+      });
+
+      return updatedStock;
+    } catch (error) {
+      LoggerService.logError("❌ Error updating stock", error);
+      throw error;
+    }
   }
 
   /**
    * ✅ Șterge un stoc
    */
-  static async deleteStock(stockId: string): Promise<void> {
-    ModuleMiddleware.ensureModuleActive("stocks");
+  static async deleteStock(id: string) {
+    try {
+      ModuleMiddleware.ensureModuleActive("stocks");
 
-    await StockRepository.softDeleteStock(stockId);
+      await StockRepository.delete(id);
 
-    // 🔹 Emit event și log
-    await EventService.emitEvent(EventTypes.STOCK_DELETED, { stockId });
-    await LoggerService.logInfo(`🗑️ Stock deleted: ID ${stockId}`);
+      await EventService.emitEvent(EventTypes.STOCK_DELETED, {
+        stockId: id,
+      });
+
+      return { success: true, stockId: id };
+    } catch (error) {
+      LoggerService.logError("❌ Error deleting stock", error);
+      throw error;
+    }
   }
 
   /**
-   * ✅ Generează raport de stocuri
+   * ✅ Generează un raport despre stocuri
    */
-  static async generateStockReport(): Promise<{
-    totalItems: number;
-    lowStockItems: Stock[];
-    reportGeneratedAt: string;
-  }> {
-    ModuleMiddleware.ensureModuleActive("stocks");
+  static async generateStockReport() {
+    try {
+      ModuleMiddleware.ensureModuleActive("stocks");
 
-    const report = await StockRepository.getStockReport();
+      const stockReport = await StockRepository.getStockReport();
 
-    const enrichedReport = {
-      ...report,
-      reportGeneratedAt: new Date().toISOString(), // ✅ Adăugat câmpul necesar
-    };
+      await EventService.emitEvent(EventTypes.STOCK_REPORT_GENERATED, {
+        reportGeneratedAt: new Date().toISOString(),
+      });
 
-    // 🔹 Emit event și log
-    await EventService.emitEvent(EventTypes.STOCK_REPORT_GENERATED, enrichedReport);
-    await LoggerService.logInfo("📊 Stock report generated.");
-
-    return enrichedReport;
+      return stockReport;
+    } catch (error) {
+      LoggerService.logError("❌ Error generating stock report", error);
+      throw error;
+    }
   }
 }
 

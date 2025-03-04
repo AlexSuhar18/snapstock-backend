@@ -1,18 +1,14 @@
-import { Router } from 'express';
-import ModuleMiddleware from '../middlewares/ModuleMiddleware';
-import { SuperuserHandlers } from '../controllers/superuserController';
+import express from "express";
+import SuperuserController from "../controllers/superuserController";
+import ValidateSuperuserMiddleware from "../middlewares/validateSuperuserMiddleware";
 
-const router = Router();
+const router = express.Router();
 
-// ✅ Middleware global pentru verificare modul activ
-router.use(ModuleMiddleware.checkModule('superusers'));
-
-// 🔹 Endpoints pentru gestionarea superuserilor
-router.post('/', SuperuserHandlers.setupSuperuser);
-router.get('/', SuperuserHandlers.getAllSuperusers);
-router.get('/:id', SuperuserHandlers.getSuperuser);
-router.delete('/', SuperuserHandlers.deleteAllSuperusers);
-router.delete('/:id', SuperuserHandlers.deleteSuperuser);
-router.post('/clone', SuperuserHandlers.cloneSuperuser);
+router.post("/setup", ValidateSuperuserMiddleware.validateSetupSuperuser, SuperuserController.setupSuperuser);
+router.get("/:superuserId", ValidateSuperuserMiddleware.validateGetSuperuser, SuperuserController.getSuperuser);
+router.get("/", SuperuserController.getAllSuperusers);
+router.delete("/", SuperuserController.deleteAllSuperusers);
+router.delete("/:superuserId", ValidateSuperuserMiddleware.validateGetSuperuser, SuperuserController.deleteSuperuser);
+router.post("/clone", ValidateSuperuserMiddleware.validateSetupSuperuser, SuperuserController.cloneSuperuser);
 
 export default router;

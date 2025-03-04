@@ -1,82 +1,73 @@
-import admin from "firebase-admin";
-import { IRepository } from "./Interfaces/IRepository";
+import persistenceService from "../services/PersistenceService";
+import ModuleMiddleware from "../middlewares/ModuleMiddleware";
+import EventService from "../services/EventService";
+import { EventTypes } from "../events/EventTypes";
+import { IRepository } from "../Interfaces/IRepository";
 import LoggerService from "../services/LoggerService";
-import PluginManager from "../core/PluginManager";
 
 abstract class FirestoreRepository<T extends Record<string, any>> implements IRepository<T> {
+  protected db = persistenceService;
   protected collectionName: string;
 
   constructor(collectionName: string) {
     this.collectionName = collectionName;
   }
 
-  protected getCollection() {
-    return admin.firestore().collection(this.collectionName);
+  private ensureModuleActive(): void {
+    ModuleMiddleware.ensureModuleActive(this.collectionName);
   }
 
   async getById(id: string): Promise<T | null> {
     this.ensureModuleActive();
-
-    try {
-      const doc = await this.getCollection().doc(id).get();
-      return doc.exists ? (doc.data() as T) : null;
-    } catch (error) {
-      LoggerService.logError(`❌ Error fetching document from ${this.collectionName}:`, error);
-      throw new Error(`Error fetching document from ${this.collectionName}`);
-    }
+    return await this.db.getDocumentById(this.collectionName, id);
   }
 
   async getAll(): Promise<T[]> {
     this.ensureModuleActive();
-
-    try {
-      const snapshot = await this.getCollection().get();
-      return snapshot.docs.map((doc) => doc.data() as T);
-    } catch (error) {
-      LoggerService.logError(`❌ Error fetching all documents from ${this.collectionName}:`, error);
-      throw new Error(`Error fetching all documents from ${this.collectionName}`);
-    }
+    return await this.db.getAllDocuments(this.collectionName);
   }
 
   async create(data: T): Promise<T> {
     this.ensureModuleActive();
+    const id = this.db.generateId(this.collectionName);
+    const newData = { ...(data as any), id };
 
-    try {
-      const docRef = this.getCollection().doc();
-      await docRef.set(data);
-      return { ...(data as any), id: docRef.id };
-    } catch (error) {
-      LoggerService.logError(`❌ Error creating document in ${this.collectionName}:`, error);
-      throw new Error(`Error creating document in ${this.collectionName}`);
-    }
+    await this.db.createDocument(this.collectionName, id, newData);
+    await EventService.emitEvent(`${this.collectionName.toUpperCase()}_CREATED` as EventTypes, { id, ...(newData as any) });
+
+    return newData as T;
   }
 
-  async update(id: string, data: Partial<T>): Promise<void> {
+  async update(id: string, data: Partial<T>): Promise<T> {
     this.ensureModuleActive();
-
-    try {
-      await this.getCollection().doc(id).update(data);
-    } catch (error) {
-      LoggerService.logError(`❌ Error updating document in ${this.collectionName}:`, error);
-      throw new Error(`Error updating document in ${this.collectionName}`);
+    const existingDoc = await this.getById(id);
+    if (!existingDoc) {
+      throw new Error(`Document with ID ${id} not found.`);
     }
+
+    await this.db.updateDocument(this.collectionName, id, data);
+    const updatedDoc = await this.getById(id);
+    if (!updatedDoc) {
+      throw new Error(`Failed to retrieve document after update.`);
+    }
+
+    await EventService.emitEvent(`${this.collectionName.toUpperCase()}_UPDATED` as EventTypes, { id, ...(updatedDoc as any) });
+
+    return updatedDoc as T;
   }
 
-  async delete(id: string): Promise<void> {
+  async delete(id: string): Promise<T | null> {
     this.ensureModuleActive();
+    const document = await this.getById(id);
+    if (!document) {
+      LoggerService.logWarn(`⚠️ Attempted to delete non-existing document in ${this.collectionName}: ${id}`);
+      return null; 
+    }    
 
-    try {
-      await this.getCollection().doc(id).delete();
-    } catch (error) {
-      LoggerService.logError(`❌ Error deleting document from ${this.collectionName}:`, error);
-      throw new Error(`Error deleting document from ${this.collectionName}`);
-    }
-  }
+    await this.db.deleteDocument(this.collectionName, id);
+    await EventService.emitEvent(`${this.collectionName.toUpperCase()}_DELETED` as EventTypes, { id });
 
-  private ensureModuleActive() {
-    if (!PluginManager.isModuleActive(this.collectionName)) {
-      throw new Error(`${this.collectionName} module is disabled`);
-    }
+    return document;
   }
 }
 

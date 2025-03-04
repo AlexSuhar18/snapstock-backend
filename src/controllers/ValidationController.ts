@@ -1,36 +1,29 @@
 import { Request, Response, NextFunction } from "express";
-import validator from "validator";
-import UserService from "../services/UserService";
+import { ValidationService } from "../services/ValidationService";
 import LoggerService from "../services/LoggerService";
-import { BadRequestError } from "../errors/CustomErrors";
 
 class ValidationController {
   /**
-   * ✅ Validează o parolă (lungime minimă, caracter special, cifră etc.)
+   * ✅ Validează o parolă
    */
   static async validatePassword(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { password } = req.body;
 
       if (!password) {
-        throw new BadRequestError("Password is required.");
+        res.status(400).json({ message: "❌ Password is required." });
+        return;
       }
 
-      const isStrong = validator.isStrongPassword(password, {
-        minLength: 8,
-        minLowercase: 1,
-        minUppercase: 1,
-        minNumbers: 1,
-        minSymbols: 1,
+      if (ValidationService.isCommonPassword(password)) {
+        res.status(400).json({ message: "❌ Password is too common and insecure." });
+        return;
+      }
+
+      const isValid = await ValidationService.isStrongPassword(password);
+      res.status(isValid ? 200 : 400).json({
+        message: isValid ? "✅ Password is valid." : "❌ Password is not strong enough.",
       });
-
-      if (!isStrong) {
-        throw new BadRequestError(
-          "Password must be at least 8 characters long and include an uppercase letter, a lowercase letter, a number, and a special character."
-        );
-      }
-
-      res.status(200).json({ message: "✅ Password is valid." });
     } catch (error) {
       LoggerService.logError("❌ Error validating password.", error);
       next(error);
@@ -38,21 +31,36 @@ class ValidationController {
   }
 
   /**
-   * ✅ Validează un email (format corect)
+   * ✅ Verifică dacă o parolă este comună
+   */
+  static async checkCommonPassword(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { password } = req.body;
+
+      if (!password) {
+        res.status(400).json({ message: "❌ Password is required." });
+        return;
+      }
+
+      const isCommon = ValidationService.isCommonPassword(password);
+      res.status(isCommon ? 400 : 200).json({
+        message: isCommon ? "⚠️ Password is too common and insecure." : "✅ Password is unique.",
+      });
+    } catch (error) {
+      LoggerService.logError("❌ Error checking common password.", error);
+      next(error);
+    }
+  }
+
+  /**
+   * ✅ Validează un email
    */
   static async validateEmail(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const { email } = req.body;
-
-      if (!email) {
-        throw new BadRequestError("Email is required.");
-      }
-
-      if (!validator.isEmail(email)) {
-        throw new BadRequestError("Invalid email format.");
-      }
-
-      res.status(200).json({ message: "✅ Email is valid." });
+      const isValid = await ValidationService.isValidEmail(req.body.email);
+      res.status(isValid ? 200 : 400).json({
+        message: isValid ? "✅ Email is valid." : "❌ Invalid email format.",
+      });
     } catch (error) {
       LoggerService.logError("❌ Error validating email.", error);
       next(error);
@@ -64,17 +72,10 @@ class ValidationController {
    */
   static async validateDomain(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const { domain } = req.body;
-
-      if (!domain) {
-        throw new BadRequestError("Domain is required.");
-      }
-
-      if (!validator.isFQDN(domain)) {
-        throw new BadRequestError("Invalid domain format.");
-      }
-
-      res.status(200).json({ message: "✅ Domain is valid." });
+      const isAllowed = await ValidationService.isAllowedDomain(req.body.email);
+      res.status(isAllowed ? 200 : 400).json({
+        message: isAllowed ? "✅ Domain is valid." : "❌ Domain is not allowed.",
+      });
     } catch (error) {
       LoggerService.logError("❌ Error validating domain.", error);
       next(error);
@@ -86,16 +87,9 @@ class ValidationController {
    */
   static async checkDuplicateEmail(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const { email } = req.body;
-
-      if (!email) {
-        throw new BadRequestError("Email is required.");
-      }
-
-      const emailExists = await UserService.isEmailTaken(email);
-
-      res.status(emailExists ? 409 : 200).json({
-        message: emailExists ? "⚠️ Email is already in use." : "✅ Email is available.",
+      const isDuplicate = await ValidationService.isDuplicateEmail(req.body.email, []);
+      res.status(isDuplicate ? 409 : 200).json({
+        message: isDuplicate ? "⚠️ Email is already in use." : "✅ Email is available.",
       });
     } catch (error) {
       LoggerService.logError("❌ Error checking duplicate email.", error);

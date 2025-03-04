@@ -2,9 +2,6 @@ import { IDatabaseClient } from "../database/IDatabaseClient";
 import EventService from "../services/EventService";
 import { EventTypes } from "../events/EventTypes";
 
-/**
- * ✅ Serviciu pentru interacțiunea cu baza de date (independent de Firestore).
- */
 class PersistenceService {
   private dbClient: IDatabaseClient;
 
@@ -16,7 +13,8 @@ class PersistenceService {
    * ✅ Obține un document după ID
    */
   public async getDocumentById(collection: string, id: string): Promise<any | null> {
-    return await this.dbClient.getDocumentById(collection, id);
+    const document = await this.dbClient.getDocumentById(collection, id);
+    return document;
   }
 
   /**
@@ -27,46 +25,85 @@ class PersistenceService {
   }
 
   /**
-   * ✅ Creează un document nou într-o colecție
+   * ✅ Obține un document pe baza unui câmp specific și emite un eveniment
    */
-  public async createDocument(collection: string, id: string, data: any): Promise<void> {
+  public async getSingleDocumentByField(collection: string, field: string, value: any): Promise<any | null> {
+    const document = await this.dbClient.getSingleDocumentByField(collection, field, value);
+
+    await EventService.emitEvent(EventTypes.DOCUMENT_QUERIED, {
+      collection,
+      field,
+      value,
+      documentId: document.id // 🔹 Acum include și documentul găsit
+    });
+
+    return document;
+  }
+
+  /**
+   * ✅ Creează un document și emite un eveniment
+   */
+  public async createDocument(collection: string, id: string, data: any): Promise<any> {
     await this.dbClient.createDocument(collection, id, data);
-    await EventService.emitEvent(EventTypes.DOCUMENT_CREATED, { collection, documentId: id });
+    
+    await EventService.emitEvent(EventTypes.DOCUMENT_CREATED, { 
+      collection, 
+      documentId: id
+    });
+
+    return { id, ...data };
   }
 
   /**
-   * ✅ Actualizează un document într-o colecție
+   * ✅ Actualizează un document și emite un eveniment
    */
-  public async updateDocument(collection: string, id: string, data: Partial<any>): Promise<void> {
+  public async updateDocument(collection: string, id: string, data: Partial<any>): Promise<any> {
     await this.dbClient.updateDocument(collection, id, data);
-    await EventService.emitEvent(EventTypes.DOCUMENT_UPDATED, { collection, documentId: id });
+
+    const updatedDocument = await this.getDocumentById(collection, id);
+    if (!updatedDocument) {
+      throw new Error(`Failed to retrieve document after update: ${id}`);
+    }
+
+    await EventService.emitEvent(EventTypes.DOCUMENT_UPDATED, { 
+      collection, 
+      documentId: id
+    });
+
+    return updatedDocument;
   }
 
   /**
-   * ✅ Șterge un document dintr-o colecție
+   * ✅ Șterge un document și emite un eveniment
    */
   public async deleteDocument(collection: string, id: string): Promise<void> {
     await this.dbClient.deleteDocument(collection, id);
-    await EventService.emitEvent(EventTypes.DOCUMENT_DELETED, { collection, documentId: id });
+
+    await EventService.emitEvent(EventTypes.DOCUMENT_DELETED, { 
+      collection, 
+      documentId: id 
+    });
   }
 
   /**
-   * ✅ Șterge toate documentele dintr-o colecție
+   * ✅ Șterge toate documentele dintr-o colecție și emite un eveniment
    */
   public async deleteAllDocuments(collection: string): Promise<void> {
     await this.dbClient.deleteAllDocuments(collection);
-    await EventService.emitEvent(EventTypes.ALL_DOCUMENTS_DELETED, { collection });
+
+    await EventService.emitEvent(EventTypes.ALL_DOCUMENTS_DELETED, { 
+      collection 
+    });
   }
 
   /**
-   * ✅ Generează un ID unic pentru un document nou
+   * ✅ Generează un ID unic pentru un document
    */
   public generateId(collection: string): string {
     return this.dbClient.generateId(collection);
   }
 }
 
-// 🔹 Instanța globală care trebuie importată și utilizată
 import FirestoreClient from "../database/FirestoreClient";
 const persistenceService = new PersistenceService(new FirestoreClient());
 

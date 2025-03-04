@@ -3,6 +3,7 @@ import EventService from '../services/EventService';
 import ModuleMiddleware from '../middlewares/ModuleMiddleware';
 import { EventTypes } from '../events/EventTypes';
 import rateLimit from "express-rate-limit";
+import LoggerService from "../services/LoggerService";
 
 class RateLimitService {
   /**
@@ -24,11 +25,23 @@ class RateLimitService {
         legacyHeaders: false,
       });
 
-      EventService.emitEvent(EventTypes.RATE_LIMITER_CREATED, { windowMs: options.windowMs, max: options.max });
+      EventService.emitEvent(EventTypes.RATE_LIMITER_CREATED, {
+        windowMs: options.windowMs,
+        max: options.max,
+      });
+
+      LoggerService.logInfo(`✅ Rate limiter created: ${options.max} requests per ${options.windowMs}ms`);
+      
       return limiter;
     } catch (error) {
-      EventService.emitEvent(EventTypes.RATE_LIMITER_FAILED, { error });
-      throw new Error('❌ Rate Limiter module is disabled or an error occurred.');
+      LoggerService.logError("❌ Error creating rate limiter", error);
+
+      EventService.emitEvent(EventTypes.RATE_LIMITER_FAILED, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      
+
+      return { success: false, message: "❌ Rate Limiter module is disabled or an error occurred." };
     }
   }
 }

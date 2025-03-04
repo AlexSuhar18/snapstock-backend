@@ -1,56 +1,54 @@
-import EmailConfig from '../config/EmailConfig';
-import LoggerService from '../services/LoggerService';
-import EventService from '../services/EventService';
-import { EventTypes } from '../events/EventTypes';
+import nodemailer from "nodemailer";
+import LoggerService from "./LoggerService";
+import EventService from "./EventService";
+import { EventTypes } from "../events/EventTypes";
 
 class EmailService {
-  private transporter = EmailConfig.getTransporter();
-  private backupProvider: 'gmail' | 'mailgun' | 'sendgrid' | null =
-    (process.env.BACKUP_EMAIL_PROVIDER as 'gmail' | 'mailgun' | 'sendgrid') || null;
+  private static transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS,
+    },
+  });
 
   /**
-   * ✅ Trimite un email cu retry logic și fallback provider
+   * ✅ Trimite un email și returnează un răspuns clar.
    */
-  public async sendEmail(
-    to: string,
-    subject: string,
-    text: string,
-    html?: string,
-    retries = 3
-  ): Promise<void> {
-    let attempt = 0;
-    while (attempt < retries) {
-      try {
-        attempt++;
-        await this.transporter.sendMail({
-          from: process.env.EMAIL_USER,
-          to,
-          subject,
-          text,
-          html,
-        });
-
-        LoggerService.logInfo(`📨 Email sent to ${to} on attempt ${attempt}`);
-        await EventService.emitEvent(EventTypes.EMAIL_SENT, { to, subject });
-        return;
-      } catch (error: unknown) { // Explicităm tipul ca `unknown`
-        const errorMessage = error instanceof Error ? error.message : String(error);
-
-        LoggerService.logError(`❌ Failed attempt ${attempt} to send email to ${to}:`, errorMessage);
-
-        if (attempt === retries) {
-          if (this.backupProvider) {
-            LoggerService.logWarn(`⚠️ Switching to backup email provider: ${this.backupProvider}`);
-            this.transporter = EmailConfig.getTransporter(this.backupProvider);
-            attempt = 0; // 🔹 Resetăm încercările pentru noul provider
-          } else {
-            await EventService.emitEvent(EventTypes.EMAIL_FAILED, { to, error: errorMessage });
-            throw new Error(`❌ Error sending email after multiple attempts: ${errorMessage}`);
-          }
-        }
+  static async sendEmail(to: string, subject: string, text?: string, html?: string) {
+    try {
+      if (!to || !subject || (!text && !html)) {
+        throw new Error("Missing required email parameters.");
       }
+
+      const mailOptions = {
+        from: process.env.EMAIL_USER,
+        to,
+        subject,
+        text,
+        html,
+      };
+
+      const info = await this.transporter.sendMail(mailOptions);
+
+      if (!info.messageId) {
+        throw new Error("Failed to send email.");
+      }
+
+      // 🔥 Emiterea evenimentului doar după succes
+      await EventService.emitEvent(EventTypes.EMAIL_SENT, { to, subject });
+
+      LoggerService.logInfo(`📧 Email sent successfully to ${to}`);
+      return { success: true, message: `Email sent to ${to}`, messageId: info.messageId };
+    } catch (error) {
+      LoggerService.logError("❌ Error sending email", error);
+
+      // ✅ Verificăm dacă `error` este de tip `Error`
+      const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred.";
+
+      return { success: false, error: errorMessage };
     }
   }
 }
 
-export default new EmailService();
+export default EmailService;

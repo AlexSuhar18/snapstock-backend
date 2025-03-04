@@ -1,16 +1,14 @@
 import express from "express";
-import InviteController from "../controllers/InviteController";
-import { inviteLimiter, generalLimiter } from "../config/RateLimiter";
-import ModuleMiddleware from "../middlewares/ModuleMiddleware";
+import InviteController from "../controllers/inviteController";
+import ValidateInviteMiddleware from "../middlewares/validateInviteMiddleware";
 
 const router = express.Router();
 
-// ✅ Aplicăm middleware DOAR pe rutele relevante
-router.post("/send", ModuleMiddleware.checkModule('invitations'), inviteLimiter, InviteController.sendInvite);
-router.post("/resend/:email", ModuleMiddleware.checkModule('invitations'), inviteLimiter, InviteController.resendInvite);
-router.post("/accept", ModuleMiddleware.checkModule('invitations'), InviteController.acceptInvite);
+router.post("/send", ValidateInviteMiddleware.validateSendInvite, InviteController.sendInvite);
 router.get("/verify/:token", InviteController.verifyInvite);
-router.post("/cancel/:token", ModuleMiddleware.checkModule('invitations'), InviteController.cancelInvite);
+router.post("/accept", ValidateInviteMiddleware.validateAcceptInvite, InviteController.acceptInvite);
+router.post("/resend/:email", InviteController.resendInvite);
+router.delete("/cancel/:token", InviteController.cancelInvite);
 router.get("/all", InviteController.getAllInvitations);
 router.post("/expire", InviteController.expireInvitations);
 

@@ -1,84 +1,90 @@
-import PersistenceService from "../services/PersistenceService";
-import PluginManager from "../core/PluginManager";
+import persistenceService from "../services/PersistenceService";
+import ModuleMiddleware from "../middlewares/ModuleMiddleware";
 import EventService from "../services/EventService";
 import { EventTypes } from "../events/EventTypes";
 
-/**
- * ✅ Clasă abstractă pentru accesarea datelor
- */
 abstract class BaseRepository<T> {
-  protected db: PersistenceService;
+  protected db = persistenceService;
   protected collectionName: string;
 
   constructor(collectionName: string) {
-    this.db = PersistenceService.getFirestore(); // 🔹 Obținem instanța corectă
     this.collectionName = collectionName;
   }
 
-  /**
-   * ✅ Verifică dacă modul este activ înainte de a accesa datele
-   */
-  private ensureModuleActive(): void {
-    if (!PluginManager.isModuleActive(this.collectionName)) {
-      throw new Error(`${this.collectionName} module is disabled`);
-    }
+  async getById(id: string): Promise<T> {
+    ModuleMiddleware.ensureModuleActive(this.collectionName);
+    const document = await this.db.getDocumentById(this.collectionName, id);
+    if (!document) throw new Error(`Document with ID ${id} not found.`);
+    return document as T;
   }
 
-  /**
-   * ✅ Obține un document după ID
-   */
-  async getById(id: string): Promise<T | null> {
-    this.ensureModuleActive();
-    return this.db.getDocumentById(this.collectionName, id);
-  }
-
-  /**
-   * ✅ Obține toate documentele din colecție
-   */
   async getAll(): Promise<T[]> {
-    this.ensureModuleActive();
-    return this.db.getAllDocuments(this.collectionName);
+    ModuleMiddleware.ensureModuleActive(this.collectionName);
+    return await this.db.getAllDocuments(this.collectionName);
   }
 
-  /**
-   * ✅ Obține un singur document pe baza unui câmp specific
-   */
   async getByField(field: string, value: any): Promise<T | null> {
-    this.ensureModuleActive();
-    return this.db.getSingleDocumentByField(this.collectionName, field, value);
+    ModuleMiddleware.ensureModuleActive(this.collectionName);
+    const document = await this.db.getSingleDocumentByField(this.collectionName, field, value);
+    return document as T | null;
   }
 
-  /**
-   * ✅ Creează un document nou și emite un eveniment
-   */
   async create(data: T): Promise<T> {
-    this.ensureModuleActive();
+    ModuleMiddleware.ensureModuleActive(this.collectionName);
     const id = this.db.generateId(this.collectionName);
-    await this.db.createDocument(this.collectionName, id, data);
-    await EventService.emitEvent(EventTypes.INVITATION_CREATED, { id, ...(data as any) });
-    return { ...(data as any), id };
-}
+    const newData = { ...(data as any), id };
 
-  /**
-   * ✅ Actualizează un document existent și emite un eveniment
-   */
-  async update(id: string, data: Partial<T>): Promise<void> {
-    this.ensureModuleActive();
-    await this.db.updateDocument(this.collectionName, id, data);
+    await this.db.createDocument(this.collectionName, id, newData);
+    await EventService.emitEvent(`${this.collectionName.toUpperCase()}_CREATED` as EventTypes, { id, ...(newData as any) });
 
-    // 🔥 Emitere eveniment la update
-    await EventService.emitEvent(EventTypes.INVITATION_UPDATED, { id, ...(data as any) });
+    return await this.getById(id);  // 🔹 Returnează documentul complet după inserare
   }
 
-  /**
-   * ✅ Șterge un document și emite un eveniment
-   */
-  async delete(id: string): Promise<void> {
-    this.ensureModuleActive();
-    await this.db.deleteDocument(this.collectionName, id);
+  async update(id: string, data: Partial<T>): Promise<T> {
+    ModuleMiddleware.ensureModuleActive(this.collectionName);
+    await this.getById(id);  // 🔹 Verifică dacă documentul există înainte de update
 
-    // 🔥 Emitere eveniment când un document este șters
-    await EventService.emitEvent(EventTypes.INVITATION_DELETED, { inviteId: id });
+    await this.db.updateDocument(this.collectionName, id, data);
+    const updatedDoc = await this.getById(id);
+    await EventService.emitEvent(`${this.collectionName.toUpperCase()}_UPDATED` as EventTypes, { id, ...(updatedDoc as any) });
+
+    return updatedDoc as T;
+  }
+
+  async delete(id: string): Promise<T> {
+    ModuleMiddleware.ensureModuleActive(this.collectionName);
+    const document = await this.getById(id); // 🔹 Verifică dacă documentul există înainte de ștergere
+
+    await this.db.deleteDocument(this.collectionName, id);
+    await EventService.emitEvent(`${this.collectionName.toUpperCase()}_DELETED` as EventTypes, { id });
+
+    return document;
+  }
+
+  async deleteMultiple(ids: string[]): Promise<T[]> {
+    ModuleMiddleware.ensureModuleActive(this.collectionName);
+    const deletedDocuments: T[] = [];
+
+    for (const id of ids) {
+      try {
+        const document = await this.getById(id);
+        if (document) {
+          await this.db.deleteDocument(this.collectionName, id);
+          deletedDocuments.push(document);
+        }
+      } catch (error) {
+        // 🔹 Dacă documentul nu există, trecem la următorul
+        console.warn(`⚠️ Document with ID ${id} not found and cannot be deleted.`);
+      }
+    }
+
+    if (deletedDocuments.length > 0) {
+      await EventService.emitEvent(`${this.collectionName.toUpperCase()}_DELETED_MULTIPLE` as EventTypes, {
+        ids: deletedDocuments.map(doc => (doc as any).id), // 🔹 Emitere eveniment cu ID-urile șterse
+      });
+    }
+
+    return deletedDocuments;
   }
 }
 

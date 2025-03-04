@@ -1,216 +1,92 @@
-import PersistenceService from "../services/PersistenceService";
+import { IInvitationRepository } from "../Interfaces/IInvitationRepository";
 import { Invitation } from "../models/invitationModel";
 import BaseRepository from "./BaseRepository";
-import { IInvitationRepository } from "./Interfaces/IInvitationRepository";
-import LoggerService from "../services/LoggerService";
-import EventService from "../services/EventService";
-import { EventTypes } from "../events/EventTypes";
+import * as crypto from "crypto";
 
-const INVITATION_COLLECTION = "invitations";
-
-class InvitationRepository extends BaseRepository<Invitation> implements IInvitationRepository {
+class FirestoreInvitationRepository
+  extends BaseRepository<Invitation>
+  implements IInvitationRepository
+{
   constructor() {
-    super(INVITATION_COLLECTION);
+    super("invitations");
   }
 
-  async getByToken(token: string): Promise<Invitation | null> {
-    try {
-      const document = await this.db.getSingleDocumentByField(this.collectionName, "inviteToken", token);
-      return document ? new Invitation({ id: document.id, ...document }) : null;
-    } catch (error) {
-      LoggerService.logError("❌ Error fetching invitation by token", error);
-      throw new Error("Error fetching invitation by token");
+  async getByToken(token: string): Promise<Invitation> {
+    const invitation = await this.getByField("inviteToken", token);
+    if (!invitation) {
+      throw new Error(`Invitation with token ${token} not found.`);
     }
+    return invitation;
   }
 
   async getByEmail(email: string): Promise<Invitation | null> {
-    try {
-      const document = await this.db.getSingleDocumentByField(this.collectionName, "email", email);
-      return document ? new Invitation({ id: document.id, ...document }) : null;
-    } catch (error) {
-      LoggerService.logError("❌ Error fetching invitation by email", error);
-      throw new Error("Error fetching invitation by email");
-    }
+    const result = await this.getByField("email", email);
+    return result && result.status === "pending" ? result : null;
   }
 
-  async create(invitation: Partial<Invitation>): Promise<Invitation> {
-    try {
-      if (!invitation.email || !invitation.role || !invitation.invitedBy) {
-        throw new Error("Missing required fields: email, role, invitedBy.");
-      }
+  async create(invitation: Invitation): Promise<Invitation> {
+    const inviteToken = invitation.inviteToken || crypto.randomBytes(16).toString("hex");
+    const createdAt = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
-      const id = this.db.generateId(this.collectionName);
-      const newInvitation: Invitation = {
-        id,
-        email: invitation.email,
-        role: invitation.role,
-        inviteToken: invitation.inviteToken ?? "",
-        expiresAt: invitation.expiresAt ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        status: invitation.status ?? "pending",
-        invitedBy: invitation.invitedBy, // ✅ Adăugat `invitedBy`
-      };
-
-      await this.db.createDocument(this.collectionName, id, newInvitation);
-
-      LoggerService.logInfo(`📩 Invitation created: ${newInvitation.email}`);
-      await EventService.emitEvent(EventTypes.INVITATION_CREATED, {
-        email: newInvitation.email ?? "",
-        inviteId: id,
-      });
-
-      return newInvitation;
-    } catch (error) {
-      LoggerService.logError("❌ Error creating invitation", error);
-      throw new Error("Error creating invitation");
-    }
+    const newInvitation = { ...invitation, inviteToken, createdAt, expiresAt };
+    return await super.create(newInvitation);
   }
 
-  async update(id: string, invitation: Partial<Invitation>): Promise<void> {
-    try {
-      await this.db.updateDocument(this.collectionName, id, invitation);
-
-      LoggerService.logInfo(`🔄 Invitation updated: ${id}`);
-      await EventService.emitEvent(EventTypes.INVITATION_UPDATED, {
-        inviteId: id,
-        email: invitation.email ?? "",
-      });
-    } catch (error) {
-      LoggerService.logError("❌ Error updating invitation", error);
-      throw new Error("Error updating invitation");
-    }
+  async update(id: string, invitation: Partial<Invitation>): Promise<Invitation> {
+    return await super.update(id, invitation);
   }
 
-  async updateInvitation(token: string, updatedFields: Partial<Invitation>): Promise<void> {
-    const invitation = await this.getByToken(token);
-    if (!invitation) throw new Error("Invitation not found");
+  async delete(id: string): Promise<Invitation> {
+    const invitation = await this.getById(id);
+    if (!invitation) {
+      throw new Error(`Invitation with ID ${id} not found.`);
+    }
 
-    await this.update(invitation.id, updatedFields);
+    await super.delete(id);
+    return invitation;
   }
 
-  async delete(id: string): Promise<void> {
-    try {
-      await this.db.deleteDocument(this.collectionName, id);
-
-      LoggerService.logInfo(`🗑️ Invitation deleted: ${id}`);
-      await EventService.emitEvent(EventTypes.INVITATION_DELETED, {
-        inviteId: id,
-      });
-    } catch (error) {
-      LoggerService.logError("❌ Error deleting invitation", error);
-      throw new Error("Error deleting invitation");
-    }
-  }
-
-  async expireInvitations(): Promise<Invitation[]> {
-    try {
-      const expiredInvitations = await this.db.getDocumentsByFieldCondition(
-        this.collectionName,
-        "expiresAt",
-        "<=",
-        new Date().toISOString()
-      );
-
-      if (!expiredInvitations.length) return [];
-
-      for (const invitation of expiredInvitations) {
-        await this.db.updateDocument(this.collectionName, invitation.id!, {
-          status: "expired",
-        });
-
-        LoggerService.logInfo(`❌ Invitation expired: ${invitation.id}`);
-
-        // ✅ Acum include `email`
-        await EventService.emitEvent(EventTypes.INVITATION_EXPIRED, {
-          inviteId: invitation.id!,
-          email: invitation.email ?? "", // Asigură-te că `email` este definit
-        });
-      }
-
-      return expiredInvitations.map(inv => new Invitation(inv)); // ✅ Returnează array de invitații expirate
-    } catch (error) {
-      LoggerService.logError("❌ Error expiring invitations", error);
-      throw new Error("Error expiring invitations");
-    }
-}
-
-  async expireAllInvitations(): Promise<Invitation[]> {
-    try {
-      const expiredInvitations = await this.db.getDocumentsByFieldCondition(
-        this.collectionName,
-        "expiresAt",
-        "<=",
-        new Date().toISOString()
-      );
-
-      if (!expiredInvitations.length) return []; // ✅ Returnează un array gol în loc de `void`
-
-      for (const invitation of expiredInvitations) {
-        await this.db.updateDocument(this.collectionName, invitation.id!, {
-          status: "expired",
-        });
-
-        LoggerService.logInfo(`❌ Invitation expired: ${invitation.id}`);
-      }
-
-      return expiredInvitations.map(inv => new Invitation(inv)); // ✅ Returnează un array de obiecte Invitation
-    } catch (error) {
-      LoggerService.logError("❌ Error expiring invitations", error);
-      throw new Error("Error expiring invitations");
-    }
-}
-
-  async markAccepted(token: string): Promise<void> {
-    const invitation = await this.getByToken(token);
-    if (!invitation) throw new Error("Invitation not found");
-
-    await this.db.updateDocument(this.collectionName, invitation.id!, {
+  async markAccepted(token: string): Promise<Invitation> {
+    return await this.update(token, {
       status: "accepted",
       acceptedAt: new Date().toISOString(),
     });
-
-    LoggerService.logInfo(`✅ Invitation marked as accepted: ${token}`);
-    await EventService.emitEvent(EventTypes.INVITATION_ACCEPTED, {
-      inviteId: invitation.id!,
-      email: invitation.email ?? "",
-    });
   }
 
-  async markRevoked(token: string): Promise<void> {
-    const invitation = await this.getByToken(token);
-    if (!invitation) throw new Error("Invitation not found");
-
-    await this.db.updateDocument(this.collectionName, invitation.id!, {
+  async markRevoked(token: string): Promise<Invitation> {
+    return await this.update(token, {
       status: "revoked",
       revokedAt: new Date().toISOString(),
     });
-
-    LoggerService.logInfo(`🚫 Invitation marked as revoked: ${token}`);
-    await EventService.emitEvent(EventTypes.INVITATION_REVOKED, {
-      inviteId: invitation.id!,
-      email: invitation.email ?? "",
-    });
   }
 
-  async tokenExists(token: string): Promise<boolean> {
-    const existingToken = await this.getByToken(token);
-    return existingToken !== null;
-  }
-
-  async sendReminder(token: string): Promise<void> {
+  async sendReminder(token: string): Promise<Invitation> {
     const invitation = await this.getByToken(token);
-    if (!invitation) throw new Error("Invitation not found");
+    if (invitation.reminderSent) {
+      throw new Error(`Reminder already sent for invitation with token ${token}`);
+    }
 
-    await this.db.updateDocument(this.collectionName, invitation.id!, {
+    return await this.update(token, {
       reminderSent: true,
       reminderSentAt: new Date().toISOString(),
     });
+  }
 
-    LoggerService.logInfo(`📩 Reminder sent for invitation: ${token}`);
-    await EventService.emitEvent(EventTypes.INVITATION_REMINDER_SENT, {
-      inviteId: invitation.id!,
-      email: invitation.email ?? "",
-    });
+  async expireInvitations(): Promise<Invitation[]> {
+    const allInvitations = await this.getAll();
+    const expiredInvitations = allInvitations.filter(
+      (inv) => inv.expiresAt && new Date(inv.expiresAt) <= new Date() && inv.status === "pending"
+    );
+
+    const updatedInvitations: Invitation[] = [];
+    for (const invitation of expiredInvitations) {
+      const updatedInvitation = await this.update(invitation.inviteToken, { status: "expired" });
+      updatedInvitations.push(updatedInvitation);
+    }
+
+    return updatedInvitations;
   }
 }
 
-export default new InvitationRepository();
+export default FirestoreInvitationRepository;

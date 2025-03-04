@@ -23,17 +23,20 @@ export enum EventTypes {
     ALL_SUPERUSERS_DELETED = "superuser:all_deleted",
 
     MODULE_ENABLED = "module:enabled",
+    MODULES_RELOADED = "module:reloaded",
     MODULE_DISABLED = "module:disabled",
 
     DOCUMENT_CREATED = "document:created",
     DOCUMENT_UPDATED = "document:updated", 
     DOCUMENT_DELETED = "document:deleted", 
     ALL_DOCUMENTS_DELETED = "db:all_documents_deleted", 
+    DOCUMENT_QUERIED = "DOCUMENT_QUERIED",
 
     EMAIL_SENT = "email:sent",
     EMAIL_FAILED = "email:failed",
     PASSWORD_VALIDATED = "validation:password_validated",
     EMAIL_VALIDATED = "validation:email_validated",
+    EMAIL_DOMAIN_CHECKED = "validation:email_domain_checked",
     EMAIL_DUPLICATE_CHECKED = "validation:email_duplicate_checked",
 
     SMS_MODULE_FAILED = "sms:module_failed",
@@ -55,6 +58,7 @@ export enum EventTypes {
     // ✅ Evenimente pentru notificări
     NOTIFICATION_SENT = "notification:sent",
     NOTIFICATION_FAILED = "notification:failed",
+    NOTIFICATION_DELETED = "notification:deleted",
     NOTIFICATION_ADMIN_FAILED = "notification:adminNotifyFailed",
     ADMIN_NOTIFICATION = "admin:notification",
 
@@ -92,21 +96,24 @@ export interface EventData {
     [EventTypes.ALL_SUPERUSERS_DELETED]: {};
 
     [EventTypes.MODULE_ENABLED]: { moduleName: string };
+    [EventTypes.MODULES_RELOADED]: {moduleName: string};
     [EventTypes.MODULE_DISABLED]: { moduleName: string };
 
     [EventTypes.DOCUMENT_CREATED]: { collection: string; documentId: string };
     [EventTypes.DOCUMENT_UPDATED]: { collection: string; documentId: string };
     [EventTypes.DOCUMENT_DELETED]: { collection: string; documentId: string };
     [EventTypes.ALL_DOCUMENTS_DELETED]: { collection: string };
+    [EventTypes.DOCUMENT_QUERIED]: { collection: string; field: string; value: any; documentId?: any };
 
     [EventTypes.EMAIL_SENT]: { to: string; subject: string };
+    [EventTypes.EMAIL_DOMAIN_CHECKED]: { email: string; domain: string; isAllowed: boolean };
     [EventTypes.EMAIL_FAILED]: { to: string; error: string };
-    [EventTypes.PASSWORD_VALIDATED]: { password: string };
+    [EventTypes.PASSWORD_VALIDATED]: { password: string; isStrong: boolean };
     [EventTypes.EMAIL_VALIDATED]: { email: string; isValid: boolean };
     [EventTypes.EMAIL_DUPLICATE_CHECKED]: { email: string; isDuplicate: boolean };
 
     [EventTypes.SMS_MODULE_FAILED]: { error: any };
-    [EventTypes.SMS_SENT]: { phoneNumber: string; message: string };
+    [EventTypes.SMS_SENT]: { phoneNumber: string; message: string; provider: string };
     [EventTypes.SMS_FAILED]: { phoneNumber: string; error: any };
 
     // ✅ Tipuri pentru event logs
@@ -125,6 +132,7 @@ export interface EventData {
     // ✅ Tipuri pentru notificări
     [EventTypes.NOTIFICATION_SENT]: { email: string; type: string; content: string };
     [EventTypes.NOTIFICATION_FAILED]: { email: string; error: string };
+    [EventTypes.NOTIFICATION_DELETED]: {id: string};
     [EventTypes.ADMIN_NOTIFICATION]: { message: string; priority: "high" | "normal" };
 
     // ✅ Definim payload-ul pentru monitorizare

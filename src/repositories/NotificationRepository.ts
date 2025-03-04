@@ -1,81 +1,87 @@
-import FirebaseConfig from "../config/firebase";
+import { INotificationRepository } from "../Interfaces/INotificationRepository";
 import { Notification } from "../models/notification";
 import BaseRepository from "./BaseRepository";
-import { INotificationRepository } from "./Interfaces/INotificationRepository";
+import EventService from "../services/EventService";
+import { EventTypes } from "../events/EventTypes";
 import LoggerService from "../services/LoggerService";
-
-const db = FirebaseConfig.getFirestore();
-const NOTIFICATION_COLLECTION = "notifications";
 
 class NotificationRepository extends BaseRepository<Notification> implements INotificationRepository {
   constructor() {
-    super(NOTIFICATION_COLLECTION);
+    super("notifications");
   }
 
-  /**
-   * ✅ Adaugă o nouă notificare în sistem
-   */
-    /**
-   * ✅ Adaugă o nouă notificare în sistem
-   */
-    async addNotification(userId: string, message: string, type: "email" | "sms" | "push"): Promise<Notification> {
-      try {
-        if (!["email", "sms", "push"].includes(type)) {
-          throw new Error(`Invalid notification type: ${type}`);
-        }
-  
-        const notificationRef = db.collection(NOTIFICATION_COLLECTION).doc();
-        const notification: Notification = {
-          id: notificationRef.id,
-          userId,
-          recipient: userId,
-          message,
-          type,
-          createdAt: new Date().toISOString(),
-          read: false,
-          status: "pending",
-        };
-  
-        await notificationRef.set(notification);
-        LoggerService.logInfo(`🔔 Notification created: ${notification.id}`);
-        return notification;
-      } catch (error) {
-        LoggerService.logError("❌ Error adding notification", error);
-        throw new Error("Error adding notification");
-      }
-    }  
+  async addNotification(userId: string, message: string, type: "email" | "sms" | "push"): Promise<Notification> {
+    if (!["email", "sms", "push"].includes(type)) {
+      throw new Error(`Invalid notification type: ${type}`);
+    }
 
-  async getAll(): Promise<Notification[]> {
-    return await super.getAll();
-  }
+    const notificationData = new Notification({
+      id: this.db.generateId(this.collectionName),
+      userId,
+      recipient: userId,
+      message,
+      type,
+      createdAt: new Date().toISOString(),
+      read: false,
+      status: "pending",
+    });
 
-  async getById(id: string): Promise<Notification | null> {
-    return await super.getById(id);
-  }
+    const newNotification = await super.create(notificationData);
 
-  async delete(id: string): Promise<void> {
-    return await super.delete(id);
+    await EventService.emitEvent(EventTypes.NOTIFICATION_SENT, {
+      email: userId,
+      type: newNotification.type,
+      content: newNotification.message,
+    });
+
+    LoggerService.logInfo(`🔔 Notification created: ${newNotification.id}`);
+    return newNotification;
   }
 
   async getByUserId(userId: string): Promise<Notification[]> {
-    try {
-      const snapshot = await db.collection(NOTIFICATION_COLLECTION).where("userId", "==", userId).get();
-      return snapshot.docs.map((doc) => new Notification({ id: doc.id, ...doc.data() }));
-    } catch (error) {
-      LoggerService.logError("❌ Error fetching notifications for user", error);
-      throw new Error("Error fetching notifications for user");
-    }
+    const notifications = await this.getByField("userId", userId);
+    return notifications ? (Array.isArray(notifications) ? notifications : [notifications]) : [];
   }
 
-  async markAsRead(id: string): Promise<void> {
-    try {
-      await db.collection(NOTIFICATION_COLLECTION).doc(id).update({ read: true });
-      LoggerService.logInfo(`✅ Notification marked as read: ${id}`);
-    } catch (error) {
-      LoggerService.logError("❌ Error marking notification as read", error);
-      throw new Error("Error marking notification as read");
+  async delete(id: string): Promise<Notification> {
+    const notification = await this.getById(id);
+    if (!notification) {
+      throw new Error(`Notification with ID ${id} not found.`);
     }
+
+    await super.delete(id);
+    await EventService.emitEvent(EventTypes.NOTIFICATION_DELETED, { id });
+
+    LoggerService.logInfo(`🗑️ Notification deleted: ${id}`);
+    return notification;
   }
+
+  async markAsRead(id: string): Promise<Notification> {
+    await this.update(id, { read: true }); // 🔹 Efectuăm update-ul
+
+    const updatedNotification = await this.getById(id); // 🔹 Obținem notificarea actualizată
+    if (!updatedNotification) {
+        throw new Error(`Notification with ID ${id} not found after marking as read.`);
+    }
+
+    LoggerService.logInfo(`✅ Notification marked as read: ${id}`);
+    return updatedNotification; // 🔹 Returnăm notificarea actualizată
+}
+
+  async getById(id: string): Promise<Notification> {
+    return await super.getById(id);
+  }
+
+  async update(id: string, notification: Partial<Notification>): Promise<Notification> {
+    await super.update(id, notification); // 🔹 Apelăm update din BaseRepository
+  
+    const updatedNotification = await this.getById(id); // 🔹 Obținem notificarea actualizată
+    if (!updatedNotification) {
+      throw new Error(`Notification with ID ${id} not found after update.`);
+    }
+  
+    return updatedNotification; // 🔹 Returnăm notificarea actualizată
+  }  
 }
 
 export default new NotificationRepository();

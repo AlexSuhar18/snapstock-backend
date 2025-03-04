@@ -1,117 +1,81 @@
-import persistenceService from "../services/PersistenceService"; // ✅ Instanța globală
+import { ISuperuserRepository } from "../Interfaces/ISuperuserRepository";
 import { Superuser } from "../models/superuserModel";
-import LoggerService from "../services/LoggerService";
-import { EventTypes } from "../events/EventTypes";
+import BaseRepository from "./BaseRepository";
 import EventService from "../services/EventService";
+import { EventTypes } from "../events/EventTypes";
+import LoggerService from "../services/LoggerService";
 
-const SUPERUSER_COLLECTION = "superusers";
-
-class SuperuserRepository {
-  /**
-   * ✅ Creează un superuser nou
-   */
-  static async createSuperuser(superuser: Superuser): Promise<Superuser> {
-    try {
-      const id = superuser.id || persistenceService.generateId(SUPERUSER_COLLECTION);
-      const newSuperuser = { ...superuser, id };
-
-      await persistenceService.createDocument(SUPERUSER_COLLECTION, id, newSuperuser);
-
-      LoggerService.logInfo(`👤 Superuser created: ${newSuperuser.email}`);
-      await EventService.emitEvent(EventTypes.SUPERUSER_SETUP, {
-        superuserId: id,
-        email: newSuperuser.email,
-      });
-
-      return new Superuser(newSuperuser);
-    } catch (error) {
-      LoggerService.logError("❌ Error creating superuser", error);
-      throw new Error("Error creating superuser");
-    }
+class SuperuserRepository extends BaseRepository<Superuser> implements ISuperuserRepository {
+  constructor() {
+    super("superusers");
   }
 
-  /**
-   * ✅ Obține un superuser după ID
-   */
-  static async getSuperuser(superuserId: string): Promise<Superuser | null> {
-    try {
-      const document = await persistenceService.getDocumentById(SUPERUSER_COLLECTION, superuserId);
-      return document ? new Superuser(document) : null;
-    } catch (error) {
-      LoggerService.logError("❌ Error fetching superuser", error);
-      throw new Error("Error fetching superuser");
-    }
+  async createSuperuser(superuser: Superuser): Promise<Superuser> {
+    const id = superuser.id || this.db.generateId(this.collectionName);
+    const newSuperuser = new Superuser({ ...superuser, id });
+
+    const createdSuperuser = await super.create(newSuperuser);
+
+    await EventService.emitEvent(EventTypes.SUPERUSER_SETUP, {
+      superuserId: id,
+      email: newSuperuser.email
+    });
+
+    LoggerService.logInfo(`👤 Superuser created: ${createdSuperuser.email}`);
+    return createdSuperuser;
   }
 
-  /**
-   * ✅ Obține toți superuserii
-   */
-  static async getAllSuperusers(): Promise<Superuser[]> {
-    try {
-      const documents = await persistenceService.getAllDocuments(SUPERUSER_COLLECTION);
-      return documents.map((doc) => new Superuser(doc));
-    } catch (error) {
-      LoggerService.logError("❌ Error fetching all superusers", error);
-      throw new Error("Error fetching all superusers");
-    }
+  async getSuperuser(superuserId: string): Promise<Superuser> {
+    return await this.getById(superuserId);
   }
 
-  /**
-   * ✅ Șterge un superuser după ID
-   */
-  static async deleteSuperuser(superuserId: string): Promise<void> {
-    try {
-      await persistenceService.deleteDocument(SUPERUSER_COLLECTION, superuserId);
-
-      LoggerService.logInfo(`🗑️ Superuser deleted: ID ${superuserId}`);
-      await EventService.emitEvent(EventTypes.SUPERUSER_DELETED, { superuserId });
-    } catch (error) {
-      LoggerService.logError("❌ Error deleting superuser", error);
-      throw new Error("Error deleting superuser");
-    }
+  async getAllSuperusers(): Promise<Superuser[]> {
+    return await this.getAll();
   }
 
-  /**
-   * ✅ Șterge toți superuserii
-   */
-  static async deleteAllSuperusers(): Promise<void> {
-    try {
-      await persistenceService.deleteAllDocuments(SUPERUSER_COLLECTION);
-
-      LoggerService.logInfo(`🗑️ All superusers deleted`);
-      await EventService.emitEvent(EventTypes.ALL_SUPERUSERS_DELETED, {});
-    } catch (error) {
-      LoggerService.logError("❌ Error deleting all superusers", error);
-      throw new Error("Error deleting all superusers");
-    }
+  async updateSuperuser(id: string, superuserData: Partial<Superuser>): Promise<Superuser> {
+    const updatedSuperuser = await this.update(id, superuserData);
+    
+    LoggerService.logInfo(`📝 Superuser updated: ${updatedSuperuser.email}`);
+    return updatedSuperuser;
   }
 
-  /**
-   * ✅ Clonează un superuser existent
-   */
-  static async cloneSuperuser(superuser: Superuser): Promise<Superuser> {
-    try {
-      const id = persistenceService.generateId(SUPERUSER_COLLECTION);
-      const clonedSuperuser = {
-        ...superuser,
-        id,
-        email: `clone_${superuser.email}`,
-      };
+  async deleteSuperuser(id: string): Promise<Superuser> {
+    const deletedSuperuser = await this.delete(id);
 
-      await persistenceService.createDocument(SUPERUSER_COLLECTION, id, clonedSuperuser);
+    await EventService.emitEvent(EventTypes.SUPERUSER_DELETED, {
+      superuserId: deletedSuperuser.id, // 🔹 Eliminăm `email` dacă nu este suportat în eveniment
+    });
 
-      LoggerService.logInfo(`🔄 Superuser cloned: ${clonedSuperuser.email}`);
-      await EventService.emitEvent(EventTypes.SUPERUSER_CLONED, {
-        superuserId: id,
-        email: clonedSuperuser.email,
-      });
+    LoggerService.logInfo(`🗑️ Superuser deleted: ${deletedSuperuser.email}`);
+    return deletedSuperuser;
+  }
 
-      return new Superuser(clonedSuperuser);
-    } catch (error) {
-      LoggerService.logError("❌ Error cloning superuser", error);
-      throw new Error("Error cloning superuser");
-    }
+  async deleteMultipleSuperusers(ids: string[]): Promise<Superuser[]> {
+    const deletedSuperusers = await this.deleteMultiple(ids);
+
+    LoggerService.logInfo(`🗑️ Deleted ${deletedSuperusers.length} superusers`);
+    return deletedSuperusers;
+  }
+
+  async cloneSuperuser(superuser: Superuser): Promise<Superuser> {
+    const id = this.db.generateId(this.collectionName);
+    const clonedSuperuser = new Superuser({
+      ...superuser,
+      id,
+      email: `clone_${superuser.email}`,
+    });
+
+    const createdClone = await super.create(clonedSuperuser);
+
+    await EventService.emitEvent(EventTypes.SUPERUSER_CLONED, {
+      superuserId: createdClone.id,
+      email: createdClone.email,
+    });
+
+    LoggerService.logInfo(`🔄 Superuser cloned: ${createdClone.email}`);
+    return createdClone;
   }
 }
 
-export default SuperuserRepository;
+export default new SuperuserRepository();
