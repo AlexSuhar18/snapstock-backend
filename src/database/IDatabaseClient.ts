@@ -6,5 +6,6 @@ export interface IDatabaseClient {
     deleteDocument(collection: string, id: string): Promise<void>;
     generateId(collection: string): string;
     deleteAllDocuments(collection: string): Promise<void>;
+    getSingleDocumentByField(collection: string, field: string, value: any): Promise<any | null>;
   }
   

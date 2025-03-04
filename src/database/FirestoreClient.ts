@@ -37,6 +37,30 @@ class FirestoreClient implements IDatabaseClient {
     }
   }
 
+  async getSingleDocumentByField(collection: string, field: string, value: any): Promise<any | null> {
+    try {
+      const querySnapshot = await this.firestore.collection(collection).where(field, "==", value).limit(1).get();
+      
+      if (querySnapshot.empty) {
+        LoggerService.logInfo(`🔍 No document found in ${collection} where ${field} = ${value}`);
+        return null;
+      }
+  
+      const doc = querySnapshot.docs[0];
+      const documentData = { id: doc.id, ...doc.data() };
+  
+      LoggerService.logInfo(`📄 Document found in ${collection} where ${field} = ${value}: ${doc.id}`);
+      
+      await EventService.emitEvent(EventTypes.DOCUMENT_QUERIED, { collection, field, value, documentId: doc.id })
+        .catch(error => LoggerService.logError(`❌ Error emitting DOCUMENT_QUERIED event for ${collection}`, error));
+  
+      return documentData;
+    } catch (error) {
+      LoggerService.logError(`❌ Error querying document in ${collection} where ${field} = ${value}`, error);
+      throw new Error("Error querying document by field");
+    }
+  }  
+
   async createDocument(collection: string, id: string, data: any): Promise<void> {
     try {
       await this.firestore.collection(collection).doc(id).set(data);

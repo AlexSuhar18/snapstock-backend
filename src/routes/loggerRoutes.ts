@@ -1,16 +1,12 @@
-import { Router } from 'express';
-import LoggerController from '../controllers/LoggerController';
-import ModuleMiddleware from '../middlewares/ModuleMiddleware';
+import express from "express";
+import LoggerController from "../controllers/LoggerController";
+import ValidateLoggerMiddleware from "../middlewares/validateLoggerMiddleware";
 
-const router = Router();
+const router = express.Router();
 
-/**
- * ✅ Rute pentru logare centralizată
- * 🔹 Middleware-ul verifică dacă modulul 'logging' este activ
- */
-router.post('/log', ModuleMiddleware.checkModule('logging'), LoggerController.logEvent);
-router.post('/log/error', ModuleMiddleware.checkModule('logging'), LoggerController.logError);
-router.post('/log/warn', ModuleMiddleware.checkModule('logging'), LoggerController.logWarn);
-router.post('/log/debug', ModuleMiddleware.checkModule('logging'), LoggerController.logDebug);
+router.post("/info", ValidateLoggerMiddleware.validateLog, LoggerController.logInfo);
+router.post("/error", ValidateLoggerMiddleware.validateLogError, LoggerController.logError);
+router.post("/warn", ValidateLoggerMiddleware.validateLog, LoggerController.logWarn);
+router.post("/debug", ValidateLoggerMiddleware.validateLog, LoggerController.logDebug);
 
 export default router;

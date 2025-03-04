@@ -1,9 +1,9 @@
-import { Router } from 'express';
-import EventController from '../controllers/EventController';
-import ModuleMiddleware from '../middlewares/ModuleMiddleware';
+import express from "express";
+import EventController from "../controllers/EventController";
+import ValidateEventMiddleware from "../middlewares/validateEventMiddleware";
 
-const router = Router();
+const router = express.Router();
 
-router.post('/emit', ModuleMiddleware.checkModule('events'), EventController.emitEvent);
+router.post("/emit", ValidateEventMiddleware.validate, EventController.emitEvent);
 
 export default router;

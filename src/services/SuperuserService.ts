@@ -1,90 +1,105 @@
-import SuperuserRepository from '../repositories/SuperuserRepository';
-import LoggerService from '../services/LoggerService';
-import EventService from '../services/EventService';
-import { BadRequestError } from '../errors/CustomErrors';
-import { EventTypes } from '../events/EventTypes';
-import { Superuser } from '../models/superuserModel';
-import ModuleMiddleware from '../middlewares/ModuleMiddleware';
+import SuperuserRepository from "../repositories/SuperuserRepository";
+import LoggerService from "../services/LoggerService";
+import { EventTypes } from "../events/EventTypes";
+import EventService from "../services/EventService";
+import { Superuser } from "../models/superuserModel";
+import { BadRequestError, NotFoundError } from "../errors/CustomErrors";
 
 class SuperuserService {
   /**
-   * ✅ Creează un nou superuser
+   * ✅ Creează un superuser nou
    */
   static async setupSuperuser(data: Partial<Superuser>): Promise<Superuser> {
-    ModuleMiddleware.ensureModuleActive("superusers");
+    try {
+      if (!data.email || !data.fullName) {
+        throw new BadRequestError("Missing required fields: email, fullName");
+      }
 
-    if (!data.email || !data.fullName) {
-      throw new BadRequestError('Missing required fields: email, fullName.');
+      const superuser = await SuperuserRepository.createSuperuser(new Superuser(data));
+
+      LoggerService.logInfo(`✅ Superuser created: ${superuser.email}`);
+      return superuser;
+    } catch (error) {
+      LoggerService.logError("❌ Error setting up superuser", error);
+      throw error;
     }
-
-    const newSuperuser = await SuperuserRepository.createSuperuser(new Superuser(data));
-
-    // 🔹 Emit event și log
-    await EventService.emitEvent(EventTypes.SUPERUSER_SETUP, { superuserId: newSuperuser.id, email: newSuperuser.email });
-    await LoggerService.logInfo(`👤 Superuser created: ${newSuperuser.email}`);
-
-    return newSuperuser;
   }
 
   /**
    * ✅ Obține un superuser după ID
    */
-  static async getSuperuser(superuserId: string): Promise<Superuser | null> {
-    ModuleMiddleware.ensureModuleActive("superusers");
-    return await SuperuserRepository.getSuperuser(superuserId);
+  static async getSuperuser(superuserId: string): Promise<Superuser> {
+    try {
+      const superuser = await SuperuserRepository.getSuperuser(superuserId);
+      if (!superuser) {
+        throw new NotFoundError("Superuser not found");
+      }
+      return superuser;
+    } catch (error) {
+      LoggerService.logError("❌ Error fetching superuser", error);
+      throw error;
+    }
   }
 
   /**
    * ✅ Obține toți superuserii
    */
   static async getAllSuperusers(): Promise<Superuser[]> {
-    ModuleMiddleware.ensureModuleActive("superusers");
-    return await SuperuserRepository.getAllSuperusers();
-  }
-
-  /**
-   * ✅ Șterge toți superuserii
-   */
-  static async deleteAllSuperusers(): Promise<void> {
-    ModuleMiddleware.ensureModuleActive("superusers");
-
-    await SuperuserRepository.deleteAllSuperusers();
-
-    // 🔹 Emit event și log
-    await EventService.emitEvent(EventTypes.ALL_SUPERUSERS_DELETED, {});
-    await LoggerService.logInfo(`🗑️ All superusers deleted.`);
+    try {
+      return await SuperuserRepository.getAllSuperusers();
+    } catch (error) {
+      LoggerService.logError("❌ Error fetching all superusers", error);
+      throw error;
+    }
   }
 
   /**
    * ✅ Șterge un superuser după ID
    */
   static async deleteSuperuser(superuserId: string): Promise<void> {
-    ModuleMiddleware.ensureModuleActive("superusers");
+    try {
+      if (!superuserId) {
+        throw new BadRequestError("Superuser ID is required");
+      }
 
-    await SuperuserRepository.deleteSuperuser(superuserId);
-
-    // 🔹 Emit event și log
-    await EventService.emitEvent(EventTypes.SUPERUSER_DELETED, { superuserId });
-    await LoggerService.logInfo(`🗑️ Superuser deleted: ID ${superuserId}`);
+      await SuperuserRepository.deleteSuperuser(superuserId);
+      LoggerService.logInfo(`🗑️ Superuser deleted: ID ${superuserId}`);
+    } catch (error) {
+      LoggerService.logError("❌ Error deleting superuser", error);
+      throw error;
+    }
   }
 
   /**
-   * ✅ Clonează un superuser
+   * ✅ Șterge toți superuserii
+   */
+  static async deleteAllSuperusers(): Promise<void> {
+    try {
+      await SuperuserRepository.deleteAllSuperusers();
+      LoggerService.logInfo("🗑️ All superusers deleted");
+    } catch (error) {
+      LoggerService.logError("❌ Error deleting all superusers", error);
+      throw error;
+    }
+  }
+
+  /**
+   * ✅ Clonează un superuser existent
    */
   static async cloneSuperuser(data: Partial<Superuser>): Promise<Superuser> {
-    ModuleMiddleware.ensureModuleActive("superusers");
+    try {
+      if (!data.email || !data.fullName) {
+        throw new BadRequestError("Missing required fields: email, fullName");
+      }
 
-    if (!data.email || !data.fullName) {
-      throw new BadRequestError('Missing required fields: email, fullName.');
+      const clonedSuperuser = await SuperuserRepository.cloneSuperuser(new Superuser(data));
+
+      LoggerService.logInfo(`🔄 Superuser cloned: ${clonedSuperuser.email}`);
+      return clonedSuperuser;
+    } catch (error) {
+      LoggerService.logError("❌ Error cloning superuser", error);
+      throw error;
     }
-
-    const clonedSuperuser = await SuperuserRepository.cloneSuperuser(new Superuser(data));
-
-    // 🔹 Emit event și log
-    await EventService.emitEvent(EventTypes.SUPERUSER_CLONED, { superuserId: clonedSuperuser.id, email: clonedSuperuser.email });
-    await LoggerService.logInfo(`🔄 Superuser cloned: ${clonedSuperuser.email}`);
-
-    return clonedSuperuser;
   }
 }
 

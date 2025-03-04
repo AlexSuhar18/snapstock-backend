@@ -1,131 +1,91 @@
-import NotificationRepository from "../repositories/NotificationRepository";
-import LoggerService from "../services/LoggerService";
 import EventService from "../services/EventService";
-import EmailService from "./EmailService";
-import SMSService from "./SMSService";
-import { Invitation } from "../models/invitationModel";
-import * as Sentry from "@sentry/node";
 import { EventTypes } from "../events/EventTypes";
-import { NotificationType } from "../enums/NotificationType";
-
-Sentry.init({ dsn: "SENTRY_DSN" });
+import LoggerService from "../services/LoggerService";
 
 class NotificationService {
   /**
-   * ✅ Trimite o invitație prin email și/sau SMS
+   * ✅ Trimite o invitație și emite un eveniment
    */
-  static async sendInvitation(invitation: Invitation): Promise<void> {
+  static async sendInvitation(data: any): Promise<{ success: boolean; message: string; data?: any }> {
     try {
-      if (!invitation.email || !invitation.inviteToken) {
-        throw new Error("Invalid invitation: Missing email or token.");
+      if (!data.email || !data.inviteId) {
+        return { success: false, message: "Missing required parameters: email or inviteId" };
       }
 
-      LoggerService.logInfo(`📨 Preparing to send invitation to ${invitation.email}`);
+      // 🔹 Construim obiectul invitației
+      const invitation = {
+        email: data.email,
+        inviteId: data.inviteId,
+        inviteMethod: data.inviteMethod || "email",
+        phoneNumber: data.phoneNumber || "",
+        role: data.role || "guest",
+        invitedBy: data.invitedBy || "system",
+        status: data.status || "pending",
+        createdAt: new Date().toISOString(),
+      };
 
-      const notificationJobs: Promise<string | void>[] = [];
+      // 🔥 Emitere eveniment în mod securizat
+      await EventService.emitEvent(EventTypes.INVITATION_CREATED, { email: invitation.email, inviteId: invitation.inviteId })
+        .catch(error => LoggerService.logError("❌ Error emitting invitation event", error));
 
-      if (invitation.inviteMethod === "email" || invitation.inviteMethod === "both") {
-        notificationJobs.push(
-          EmailService.sendEmail(
-            invitation.email,
-            "You have been invited!",
-            `Click the link to accept your invitation: ${process.env.FRONTEND_URL}/accept-invite/${invitation.inviteToken}`
-          ).then(() => "Email sent")
-        );
-      }
-
-      if ((invitation.inviteMethod === "sms" || invitation.inviteMethod === "both") && invitation.phoneNumber) {
-        notificationJobs.push(
-          SMSService.sendSMS(
-            invitation.phoneNumber,
-            `You have been invited! Click the link to accept: ${process.env.FRONTEND_URL}/accept-invite/${invitation.inviteToken}`
-          ).then(() => "SMS sent")
-        );
-      }
-
-      const results = await Promise.allSettled(notificationJobs);
-
-      for (const result of results) {
-        if (result.status === "fulfilled") {
-          LoggerService.logInfo(`✅ Notification sent successfully: ${result.value}`);
-        } else {
-          const errorMessage = result.reason instanceof Error ? result.reason.message : String(result.reason);
-          LoggerService.logError("❌ Failed to send notification:", errorMessage);
-        }
-      }
-
-      LoggerService.logInfo(`📨 Notification process completed for ${invitation.email}`);
-      await EventService.emitEvent(EventTypes.INVITATION_CREATED, {
-        email: invitation.email,
-        inviteId: invitation.inviteToken,
-      });
+      return { success: true, message: "Invitation processed successfully", data: invitation };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      LoggerService.logError("❌ Error sending invitation notification:", errorMessage);
-      await EventService.emitEvent(EventTypes.NOTIFICATION_FAILED, { email: invitation.email, error: errorMessage });
+      LoggerService.logError("❌ Error processing invitation", error);
+      return { success: false, message: "Error processing invitation" };
     }
   }
 
   /**
-   * ✅ Notifică un administrator când o invitație este acceptată
+   * ✅ Trimite o notificare administratorului
    */
-  static async notifyAdmin(invitation: Invitation): Promise<void> {
+  static async notifyAdmin(data: any): Promise<{ success: boolean; message: string; data?: any }> {
     try {
-      if (!NotificationRepository.addNotification) {
-        throw new Error("Method addNotification is missing from NotificationRepository");
+      if (!data.email || !data.invitedBy || !data.message) {
+        return { success: false, message: "Missing required parameters: email, invitedBy, or message" };
       }
 
-      await NotificationRepository.addNotification(
-        invitation.invitedBy,
-        `User ${invitation.email} has accepted the invitation.`,
-        NotificationType.EMAIL
-      );
+      // 🔹 Construim obiectul notificării
+      const notification = {
+        email: data.email,
+        invitedBy: data.invitedBy,
+        message: data.message,
+        priority: data.priority || "normal",
+      };
 
-      LoggerService.logInfo(`🔔 Admin notified about accepted invitation: ${invitation.email}`);
-      await EventService.emitEvent(EventTypes.INVITATION_ACCEPTED, {
-        email: invitation.email,
-        inviteId: invitation.inviteToken,
-      });
+      // 🔥 Emitere eveniment în mod securizat
+      await EventService.emitEvent(EventTypes.ADMIN_NOTIFICATION, { message: notification.message, priority: notification.priority })
+        .catch(error => LoggerService.logError("❌ Error emitting admin notification event", error));
+
+      return { success: true, message: "Admin notification sent successfully", data: notification };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      LoggerService.logError("❌ Error notifying admin about accepted invitation:", errorMessage);
-      await EventService.emitEvent(EventTypes.NOTIFICATION_ADMIN_FAILED, { email: invitation.email, error: errorMessage });
+      LoggerService.logError("❌ Error sending admin notification", error);
+      return { success: false, message: "Error sending admin notification" };
     }
   }
 
   /**
-   * ✅ Trimite un email de reminder pentru invitațiile care expiră
+   * ✅ Trimite un reminder prin email
    */
-  static async sendReminderEmail(email: string, inviteToken: string): Promise<void> {
+  static async sendReminderEmail(data: any): Promise<{ success: boolean; message: string; data?: any }> {
     try {
-      LoggerService.logInfo(`📩 Sending reminder email to ${email}`);
-
-      const emailSent = await EmailService.sendEmail(
-        email,
-        "Reminder: Your invitation is expiring soon!",
-        `Hello, your invitation is about to expire in 3 hours. Click the link below to accept it before it expires:
-        ${process.env.FRONTEND_URL}/invite?token=${inviteToken}`,
-        `<h3>Reminder: Your Invitation is Expiring Soon!</h3>
-        <p>Hello,</p>
-        <p>Your invitation is about to expire in <strong>3 hours</strong>. Click the button below to accept it before it expires:</p>
-        <p><a href="${process.env.FRONTEND_URL}/invite?token=${inviteToken}" 
-        style="padding: 10px 20px; background: #007bff; color: #fff; text-decoration: none; border-radius: 5px;">
-        Accept Invitation</a></p>
-        <p>If you have any questions, feel free to contact us.</p>
-        <p>Thank you!</p>`
-      ).then(() => "Email sent");
-
-      if (emailSent) {
-        LoggerService.logInfo(`✅ Reminder email sent to ${email}`);
-        await EventService.emitEvent(EventTypes.INVITATION_REMINDER_SENT, { email, inviteId: inviteToken });
-      } else {
-        LoggerService.logWarn(`⚠️ Reminder email failed to send to ${email}`);
-        await EventService.emitEvent(EventTypes.NOTIFICATION_FAILED, { email: email, error: "Failed to send reminder" });
+      if (!data.email || !data.inviteId) {
+        return { success: false, message: "Missing required parameters: email or inviteId" };
       }
+
+      // 🔹 Construim detaliile reminder-ului
+      const reminder = {
+        email: data.email,
+        inviteId: data.inviteId,
+      };
+
+      // 🔥 Emitere eveniment în mod securizat
+      await EventService.emitEvent(EventTypes.INVITATION_REMINDER_SENT, { email: reminder.email, inviteId: reminder.inviteId })
+        .catch(error => LoggerService.logError("❌ Error emitting reminder email event", error));
+
+      return { success: true, message: "Reminder email sent successfully", data: reminder };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      LoggerService.logError("❌ Error sending reminder email:", errorMessage);
-      await EventService.emitEvent(EventTypes.NOTIFICATION_FAILED, { email: email, error: errorMessage });
+      LoggerService.logError("❌ Error sending reminder email", error);
+      return { success: false, message: "Error sending reminder email" };
     }
   }
 }

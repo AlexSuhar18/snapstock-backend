@@ -1,15 +1,11 @@
-import { Router } from 'express';
-import NotificationController from '../controllers/NotificationController';
-import ModuleMiddleware from '../middlewares/ModuleMiddleware';
+import express from "express";
+import NotificationController from "../controllers/NotificationController";
+import ValidateNotificationMiddleware from "../middlewares/validateNotificationMiddleware";
 
-const router = Router();
+const router = express.Router();
 
-// ✅ Middleware global pentru acest modul
-router.use(ModuleMiddleware.checkModule('notifications'));
-
-// 🔹 Rute pentru notificări (folosind metodele corect)
-router.post('/send-invitation', (req, res, next) => NotificationController.sendInvitation(req, res, next));
-router.post('/notify-admin', (req, res, next) => NotificationController.notifyAdmin(req, res, next));
-router.post('/send-reminder', (req, res, next) => NotificationController.sendReminderEmail(req, res, next));
+router.post("/send-invitation", ValidateNotificationMiddleware.validateSendInvitation, NotificationController.sendInvitation);
+router.post("/notify-admin", ValidateNotificationMiddleware.validateNotifyAdmin, NotificationController.notifyAdmin);
+router.post("/send-reminder", ValidateNotificationMiddleware.validateSendReminder, NotificationController.sendReminderEmail);
 
 export default router;

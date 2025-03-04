@@ -1,17 +1,30 @@
-import { Router } from 'express';
-import ModuleMiddleware from '../middlewares/ModuleMiddleware';
-import StocksController from '../controllers/stocksController';
+import express from "express";
+import StocksController from "../controllers/stocksController";
+import ValidateStockMiddleware from "../middlewares/validateStockData";
+import ModuleMiddleware from "../middlewares/ModuleMiddleware";
 
-const router = Router();
+const router = express.Router();
 
-// ✅ Middleware global pentru verificare modul activ
-router.use(ModuleMiddleware.checkModule('stocks'));
+// 🛡️ Aplicăm verificarea activării modulului și validarea input-ului
+router.post(
+  "/stocks",
+  ModuleMiddleware.checkModule("stocks"),
+  ValidateStockMiddleware.validateStockCreate,
+  StocksController.createStock
+);
 
-// 🔹 Endpoints pentru gestionarea stocurilor
-router.get('/', StocksController.getStocks);
-router.post('/', StocksController.createStock);
-router.put('/:id', StocksController.updateStock);
-router.delete('/:id', StocksController.deleteStock);
-router.get('/report', StocksController.getStockReport);
+router.get("/stocks", StocksController.getStocks);
+router.get("/stocks/report", StocksController.getStockReport);
+router.put(
+  "/stocks/:id",
+  ModuleMiddleware.checkModule("stocks"),
+  ValidateStockMiddleware.validateStockUpdate,
+  StocksController.updateStock
+);
+router.delete(
+  "/stocks/:id",
+  ModuleMiddleware.checkModule("stocks"),
+  StocksController.deleteStock
+);
 
 export default router;
