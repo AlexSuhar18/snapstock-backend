@@ -14,11 +14,11 @@ export class ValidationService {
   static async isStrongPassword(password?: string): Promise<boolean> {
     ModuleMiddleware.ensureModuleActive("validation");
 
-    if (!password || password.trim().length < 8) {
+    if (!password || password.trim().length < 10) { // 🔹 Creștem lungimea minimă
       return false;
     }
 
-    const strongPasswordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).{8,}$/;
+    const strongPasswordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+={}\[\]:;"'<>,.?/~`]).{10,}$/;
     const isStrong = strongPasswordRegex.test(password) && !this.isCommonPassword(password);
 
     await EventService.emitEvent(EventTypes.PASSWORD_VALIDATED, { password: "[HIDDEN]", isStrong });
@@ -33,16 +33,16 @@ export class ValidationService {
   }
 
   /**
-   * ✅ Validează un email conform RFC 5322
+   * ✅ Validează un email conform RFC 5322 îmbunătățit
    */
   static async isValidEmail(email: string): Promise<boolean> {
     ModuleMiddleware.ensureModuleActive("validation");
 
     if (!email) {
-      throw new BadRequestError("Email is required for validation.");
+      throw new BadRequestError("❌ Email is required for validation.");
     }
 
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
     const isValid = emailRegex.test(email);
 
     await EventService.emitEvent(EventTypes.EMAIL_VALIDATED, { email, isValid });
@@ -55,7 +55,7 @@ export class ValidationService {
   private static getAllowedDomains(): Set<string> {
     if (!this.allowedDomainsCache) {
       const rawDomains = process.env.ALLOWED_DOMAINS || "";
-      this.allowedDomainsCache = new Set(rawDomains.split(",").map((domain) => domain.trim()));
+      this.allowedDomainsCache = new Set(rawDomains.split(",").map((domain) => domain.trim().toLowerCase()));
     }
     return this.allowedDomainsCache;
   }
@@ -66,7 +66,7 @@ export class ValidationService {
   private static getBlacklistedDomains(): Set<string> {
     if (!this.blacklistedDomainsCache) {
       const rawBlacklistedDomains = process.env.BLACKLISTED_DOMAINS || "";
-      this.blacklistedDomainsCache = new Set(rawBlacklistedDomains.split(",").map((domain) => domain.trim()));
+      this.blacklistedDomainsCache = new Set(rawBlacklistedDomains.split(",").map((domain) => domain.trim().toLowerCase()));
     }
     return this.blacklistedDomainsCache;
   }
@@ -81,7 +81,7 @@ export class ValidationService {
       return false;
     }
 
-    const domain = email.split("@")[1];
+    const domain = email.split("@")[1].toLowerCase();
     const allowedDomains = this.getAllowedDomains();
     const blacklistedDomains = this.getBlacklistedDomains();
 
@@ -98,12 +98,26 @@ export class ValidationService {
     ModuleMiddleware.ensureModuleActive("validation");
 
     if (!email) {
-      throw new BadRequestError("Email is required for duplicate check.");
+      throw new BadRequestError("❌ Email is required for duplicate check.");
     }
 
     const isDuplicate = existingEmails.some((existingEmail) => existingEmail.toLowerCase() === email.toLowerCase());
 
     await EventService.emitEvent(EventTypes.EMAIL_DUPLICATE_CHECKED, { email, isDuplicate });
     return isDuplicate;
+  }
+
+  /**
+   * ✅ Verifică validitatea unui ID (UUID sau MongoDB ID)
+   */
+  static isValidId(id: string): boolean {
+    if (!id) {
+      throw new BadRequestError("❌ ID is required.");
+    }
+
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const mongoIdRegex = /^[0-9a-fA-F]{24}$/; // MongoDB ObjectId are exact 24 de caractere hex
+
+    return uuidRegex.test(id) || mongoIdRegex.test(id);
   }
 }

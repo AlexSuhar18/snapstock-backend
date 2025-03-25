@@ -5,7 +5,14 @@ export enum EventTypes {
     STOCK_CREATED = "stock:created",
     STOCK_UPDATED = "stock:updated",
     STOCK_DELETED = "stock:deleted",
+    STOCK_CRITICAL = "stock:critical",
     STOCK_REPORT_GENERATED = "stock:report_generated",
+
+    PRODUCT_CREATED = "product:created",
+    PRODUCT_UPDATED = "product:updated",
+    PRODUCT_DELETED = "product:deleted",
+    PRODUCT_RESTORED = "product:restored",
+    PRODUCT_REPORT_GENERATED = "product:report_generated",
 
     INVITATION_CREATED = "invite:create",
     INVITATION_UPDATED = "invite:updated",
@@ -21,15 +28,16 @@ export enum EventTypes {
     SUPERUSER_DELETED = "superuser:deleted",
     SUPERUSER_CLONED = "superuser:cloned",
     ALL_SUPERUSERS_DELETED = "superuser:all_deleted",
+    SUPERUSER_ROLE_ASSIGNED = "superuser_role_assigned",
 
     MODULE_ENABLED = "module:enabled",
     MODULES_RELOADED = "module:reloaded",
     MODULE_DISABLED = "module:disabled",
 
     DOCUMENT_CREATED = "document:created",
-    DOCUMENT_UPDATED = "document:updated", 
-    DOCUMENT_DELETED = "document:deleted", 
-    ALL_DOCUMENTS_DELETED = "db:all_documents_deleted", 
+    DOCUMENT_UPDATED = "document:updated",
+    DOCUMENT_DELETED = "document:deleted",
+    ALL_DOCUMENTS_DELETED = "db:all_documents_deleted",
     DOCUMENT_QUERIED = "DOCUMENT_QUERIED",
 
     EMAIL_SENT = "email:sent",
@@ -43,7 +51,6 @@ export enum EventTypes {
     SMS_SENT = "sms:sent",
     SMS_FAILED = "sms:failed",
 
-    // ✅ Evenimente pentru logare
     LOG_INFO = "log:info",
     LOG_ERROR = "log:error",
     LOG_WARN = "log:warn",
@@ -55,14 +62,13 @@ export enum EventTypes {
     RATE_LIMITER_CREATED = "rateLimiter:created",
     RATE_LIMITER_FAILED = "rateLimiter:failed",
 
-    // ✅ Evenimente pentru notificări
     NOTIFICATION_SENT = "notification:sent",
+    NOTIFICATION_READ = "notification:read",
     NOTIFICATION_FAILED = "notification:failed",
     NOTIFICATION_DELETED = "notification:deleted",
     NOTIFICATION_ADMIN_FAILED = "notification:adminNotifyFailed",
     ADMIN_NOTIFICATION = "admin:notification",
 
-    // ✅ Evenimente pentru monitorizare
     MONITOR_EVENT = "monitor:event",
 
     REMINDER_EMAIL_SENT = "reminder:emailSent",
@@ -79,6 +85,13 @@ export interface EventData {
     [EventTypes.STOCK_CREATED]: { stockId: string; name: string };
     [EventTypes.STOCK_UPDATED]: { stockId: string; quantity: number };
     [EventTypes.STOCK_DELETED]: { stockId: string };
+    [EventTypes.STOCK_CRITICAL]: { stockId: string; productId: string; quantity: number; location?: string | null };
+
+    [EventTypes.PRODUCT_CREATED]: { productId: string; name: string };
+    [EventTypes.PRODUCT_UPDATED]: { productId: string; changedFields: string[] };
+    [EventTypes.PRODUCT_DELETED]: { productId: string };
+    [EventTypes.PRODUCT_RESTORED]: { productId: string };
+    [EventTypes.PRODUCT_REPORT_GENERATED]: { generatedAt: string };
 
     [EventTypes.INVITATION_CREATED]: { email: string; inviteId: string };
     [EventTypes.INVITATION_UPDATED]: { email: string; inviteId: string };
@@ -94,9 +107,10 @@ export interface EventData {
     [EventTypes.SUPERUSER_DELETED]: { superuserId: string };
     [EventTypes.SUPERUSER_CLONED]: { superuserId: string; email: string };
     [EventTypes.ALL_SUPERUSERS_DELETED]: {};
+    [EventTypes.SUPERUSER_ROLE_ASSIGNED]: { superuserId: string; email: string; role: "SUPERUSER" };
 
     [EventTypes.MODULE_ENABLED]: { moduleName: string };
-    [EventTypes.MODULES_RELOADED]: {moduleName: string};
+    [EventTypes.MODULES_RELOADED]: { moduleName: string };
     [EventTypes.MODULE_DISABLED]: { moduleName: string };
 
     [EventTypes.DOCUMENT_CREATED]: { collection: string; documentId: string };
@@ -121,18 +135,18 @@ export interface EventData {
     [EventTypes.LOG_ERROR]: { message: string; error: any };
     [EventTypes.LOG_WARN]: { message: string; details?: any };
     [EventTypes.LOG_DEBUG]: { message: string; details?: any };
-    
 
     [EventTypes.EXTERNAL_LOG_SENT]: { eventName: string; details?: any };
     [EventTypes.EXTERNAL_LOG_FAILED]: { eventName: string; error: any };
-    
+
     [EventTypes.RATE_LIMITER_CREATED]: { windowMs: number; max: number };
     [EventTypes.RATE_LIMITER_FAILED]: { error: any };
 
     // ✅ Tipuri pentru notificări
     [EventTypes.NOTIFICATION_SENT]: { email: string; type: string; content: string };
+    [EventTypes.NOTIFICATION_READ]: { id: string };
     [EventTypes.NOTIFICATION_FAILED]: { email: string; error: string };
-    [EventTypes.NOTIFICATION_DELETED]: {id: string};
+    [EventTypes.NOTIFICATION_DELETED]: { id: string };
     [EventTypes.ADMIN_NOTIFICATION]: { message: string; priority: "high" | "normal" };
 
     // ✅ Definim payload-ul pentru monitorizare

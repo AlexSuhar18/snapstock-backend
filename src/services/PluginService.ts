@@ -77,6 +77,23 @@ class PluginService {
       return { success: false, message: "Error reloading modules." };
     }
   }
+
+  /**
+   * ✅ Verifică dacă un plugin cu același nume și versiune este deja înregistrat
+   */
+  static isPluginDuplicate(name: string, version: string): boolean {
+    const modules = this.getModules().data;
+    const existingPluginKeys = Object.keys(modules);
+    const pluginKey = `${name}@${version}`;
+
+    const isDuplicate = existingPluginKeys.some(existingKey => existingKey === pluginKey);
+
+    if (isDuplicate) {
+      LoggerService.logWarn(`🔁 Plugin duplicat detectat: ${pluginKey}`);
+    }
+
+    return isDuplicate;
+  }
 }
 
 export default PluginService;

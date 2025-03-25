@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from "express";
 import SuperuserService from "../services/SuperuserService";
 import LoggerService from "../services/LoggerService";
+import { BadRequestError, NotFoundError } from "../errors/CustomErrors";
+import validateSuperuserMiddleware from "../middlewares/validateSuperuserMiddleware";
 
 class SuperuserController {
   /**
@@ -8,6 +10,9 @@ class SuperuserController {
    */
   static async setupSuperuser(req: Request, res: Response, next: NextFunction) {
     try {
+      // 🔹 Validare input
+      validateSuperuserMiddleware.validateCreateSuperuser(req, res, next);
+
       const response = await SuperuserService.setupSuperuser(req.body);
       LoggerService.logInfo(`✅ Superuser created: ${response.email}`);
       res.status(201).json({ message: "✅ Superuser created successfully", superuser: response });
@@ -22,7 +27,20 @@ class SuperuserController {
    */
   static async getSuperuser(req: Request, res: Response, next: NextFunction) {
     try {
-      const response = await SuperuserService.getSuperuser(req.params.superuserId);
+      const { superuserId } = req.params;
+
+      // 🔹 Verifică dacă superuserId este valid
+      if (!superuserId) {
+        return next(new BadRequestError("❌ Superuser ID is required."));
+      }
+
+      const response = await SuperuserService.getSuperuser(superuserId);
+
+      if (!response) {
+        return next(new NotFoundError(`❌ Superuser with ID ${superuserId} not found.`));
+      }
+
+      LoggerService.logInfo(`📋 Retrieved superuser: ${superuserId}`);
       res.status(200).json(response);
     } catch (error) {
       LoggerService.logError("❌ Error fetching superuser", error);
@@ -36,6 +54,7 @@ class SuperuserController {
   static async getAllSuperusers(req: Request, res: Response, next: NextFunction) {
     try {
       const response = await SuperuserService.getAllSuperusers();
+      LoggerService.logInfo("📋 Retrieved all superusers.");
       res.status(200).json(response);
     } catch (error) {
       LoggerService.logError("❌ Error fetching all superusers", error);
@@ -63,6 +82,18 @@ class SuperuserController {
   static async deleteSuperuser(req: Request, res: Response, next: NextFunction) {
     try {
       const { superuserId } = req.params;
+
+      // 🔹 Verifică dacă superuserId este valid
+      if (!superuserId) {
+        return next(new BadRequestError("❌ Superuser ID is required."));
+      }
+
+      // 🔹 Verifică dacă superuser-ul există
+      const superuserExists = await SuperuserService.getSuperuser(superuserId);
+      if (!superuserExists) {
+        return next(new NotFoundError(`❌ Superuser with ID ${superuserId} not found.`));
+      }
+
       await SuperuserService.deleteSuperuser(superuserId);
       LoggerService.logInfo(`🗑️ Superuser deleted: ID ${superuserId}`);
       res.status(200).json({ message: `✅ Superuser with ID ${superuserId} deleted successfully` });
@@ -77,6 +108,9 @@ class SuperuserController {
    */
   static async cloneSuperuser(req: Request, res: Response, next: NextFunction) {
     try {
+      // 🔹 Validare input
+      validateSuperuserMiddleware.validateCloneSuperuser(req, res, next);
+
       const response = await SuperuserService.cloneSuperuser(req.body);
       LoggerService.logInfo(`🔄 Superuser cloned: ${response.email}`);
       res.status(201).json({ message: "✅ Superuser cloned successfully", superuser: response });

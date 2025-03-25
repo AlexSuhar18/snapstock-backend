@@ -4,19 +4,30 @@ import BaseRepository from "./BaseRepository";
 import EventService from "../services/EventService";
 import { EventTypes } from "../events/EventTypes";
 import LoggerService from "../services/LoggerService";
+import crypto from "crypto";
 
 class NotificationRepository extends BaseRepository<Notification> implements INotificationRepository {
   constructor() {
     super("notifications");
   }
 
+  /**
+   * ✅ Generează un ID unic pentru notificări
+   */
+  static generateId(): string {
+    return crypto.randomUUID(); // Alternativ: return crypto.randomBytes(16).toString("hex");
+  }
+
   async addNotification(userId: string, message: string, type: "email" | "sms" | "push"): Promise<Notification> {
+    if (!userId || typeof userId !== "string") {
+      throw new Error("Invalid userId.");
+    }
     if (!["email", "sms", "push"].includes(type)) {
       throw new Error(`Invalid notification type: ${type}`);
     }
 
     const notificationData = new Notification({
-      id: this.db.generateId(this.collectionName),
+      id: NotificationRepository.generateId(), // 🔹 Folosim metoda nouă pentru ID unic
       userId,
       recipient: userId,
       message,
@@ -28,17 +39,24 @@ class NotificationRepository extends BaseRepository<Notification> implements INo
 
     const newNotification = await super.create(notificationData);
 
-    await EventService.emitEvent(EventTypes.NOTIFICATION_SENT, {
-      email: userId,
-      type: newNotification.type,
-      content: newNotification.message,
-    });
+    try {
+      await EventService.emitEvent(EventTypes.NOTIFICATION_SENT, {
+        email: userId,
+        type: newNotification.type,
+        content: newNotification.message,
+      });
+    } catch (error) {
+      LoggerService.logError(`❌ Failed to emit NOTIFICATION_SENT event: ${error}`);
+    }
 
     LoggerService.logInfo(`🔔 Notification created: ${newNotification.id}`);
     return newNotification;
   }
 
   async getByUserId(userId: string): Promise<Notification[]> {
+    if (!userId || typeof userId !== "string") {
+      throw new Error("Invalid userId.");
+    }
     const notifications = await this.getByField("userId", userId);
     return notifications ? (Array.isArray(notifications) ? notifications : [notifications]) : [];
   }
@@ -50,38 +68,51 @@ class NotificationRepository extends BaseRepository<Notification> implements INo
     }
 
     await super.delete(id);
-    await EventService.emitEvent(EventTypes.NOTIFICATION_DELETED, { id });
+    try {
+      await EventService.emitEvent(EventTypes.NOTIFICATION_DELETED, { id });
+    } catch (error) {
+      LoggerService.logError(`❌ Failed to emit NOTIFICATION_DELETED event: ${error}`);
+    }
 
     LoggerService.logInfo(`🗑️ Notification deleted: ${id}`);
     return notification;
   }
 
   async markAsRead(id: string): Promise<Notification> {
-    await this.update(id, { read: true }); // 🔹 Efectuăm update-ul
+    const notification = await this.getById(id);
+    if (!notification) {
+      throw new Error(`Notification with ID ${id} not found.`);
+    }
 
-    const updatedNotification = await this.getById(id); // 🔹 Obținem notificarea actualizată
+    await this.update(id, { read: true });
+    const updatedNotification = await this.getById(id);
     if (!updatedNotification) {
-        throw new Error(`Notification with ID ${id} not found after marking as read.`);
+      throw new Error(`Notification with ID ${id} not found after marking as read.`);
+    }
+
+    try {
+      await EventService.emitEvent(EventTypes.NOTIFICATION_READ, { id });
+    } catch (error) {
+      LoggerService.logError(`❌ Failed to emit NOTIFICATION_READ event: ${error}`);
     }
 
     LoggerService.logInfo(`✅ Notification marked as read: ${id}`);
-    return updatedNotification; // 🔹 Returnăm notificarea actualizată
-}
+    return updatedNotification;
+  }
 
   async getById(id: string): Promise<Notification> {
     return await super.getById(id);
   }
 
   async update(id: string, notification: Partial<Notification>): Promise<Notification> {
-    await super.update(id, notification); // 🔹 Apelăm update din BaseRepository
-  
-    const updatedNotification = await this.getById(id); // 🔹 Obținem notificarea actualizată
+    await super.update(id, notification);
+    const updatedNotification = await this.getById(id);
     if (!updatedNotification) {
       throw new Error(`Notification with ID ${id} not found after update.`);
     }
-  
-    return updatedNotification; // 🔹 Returnăm notificarea actualizată
-  }  
+    return updatedNotification;
+  }
 }
 
 export default new NotificationRepository();
+export { NotificationRepository }; 

@@ -30,6 +30,9 @@ class EventService {
     payload: EventData[T]
   ): Promise<{ success: boolean; message?: string }> {
     try {
+      if (!Object.values(EventTypes).includes(event)) {
+        throw new Error(`Invalid event type: ${event}`);
+      }
       if (!this.validateEvent(event, payload)) {
         throw new Error(`Invalid event payload for event: ${event}`);
       }
@@ -109,7 +112,7 @@ class EventService {
   /**
    * ✅ Validează payload-ul unui eveniment înainte de a-l emite
    */
-  public static validateEvent<T extends EventTypes>(event: T, payload: any): boolean {
+  private static validateEvent<T extends EventTypes>(event: T, payload: any): boolean {
     if (!event || !payload) {
       LoggerService.logError(`❌ Invalid event or payload: ${event}`, payload);
       return false;
