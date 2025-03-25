@@ -8,21 +8,29 @@ import LoggingMiddleware from "./middlewares/loggingMiddleware";
 import LoggerService from "./services/LoggerService";
 import EventBus from "./events/EventBus";
 
-// ✅ Încărcăm variabilele de mediu O SINGURĂ DATĂ
-dotenv.config();
+// ✅ Încărcăm variabilele de mediu
 dotenv.config({ path: `.env.${process.env.NODE_ENV}` });
 
-LoggerService.logInfo("✅ ENV LOADED");
-LoggerService.logInfo(`NODE_ENV: ${process.env.NODE_ENV}`);
-LoggerService.logInfo(`ALLOWED_DOMAINS: "${process.env.ALLOWED_DOMAINS}"`);
+/**
+ * ✅ Validare variabile esențiale
+ */
+const REQUIRED_ENV_VARS = ["PORT", "ALLOWED_DOMAINS"];
 
+REQUIRED_ENV_VARS.forEach((envVar) => {
+  if (!process.env[envVar]) {
+    LoggerService.logError(`❌ Missing environment variable: ${envVar}`);
+    process.exit(1);
+  }
+});
+
+const PORT = process.env.PORT || 3000;
 const app = express();
 
 try {
-  // ✅ Middleware pentru logarea request-urilor
-  app.use(LoggingMiddleware.requestLogger);
+  LoggerService.logInfo("✅ Initializing application...");
 
-  // ✅ Middleware pentru parsing JSON
+  // ✅ Middleware-uri
+  app.use(LoggingMiddleware.requestLogger);
   app.use(express.json());
 
   // ✅ Definim rutele aplicației
@@ -31,22 +39,41 @@ try {
   app.use("/api/users", inviteRoutes);
   app.use("/api/debug", DebugRoutes);
 
-  // ✅ Răspuns pentru ruta principală
+  // ✅ Ruta principală
   app.get("/", (req, res) => {
     res.send("🚀 Server is running!");
   });
 
-  // ✅ Middleware pentru gestionarea erorilor
+  // ✅ Middleware pentru erori
   app.use(LoggingMiddleware.errorLogger);
 
-  // ✅ Inițializăm EventBus (pentru logare evenimente, job-uri etc.)
-  EventBus.emit("server:started", { port: process.env.PORT || 3000 });
+  // ✅ Inițializăm EventBus (gestionare evenimente)
+  try {
+    EventBus.emit("server:started", { port: PORT });
+    LoggerService.logInfo("✅ EventBus initialized.");
+  } catch (eventBusError) {
+    LoggerService.logError("❌ Error initializing EventBus:", eventBusError);
+  }
 
   // ✅ Pornim serverul
-  const PORT = process.env.PORT || 3000;
-  app.listen(PORT, () => {
-    LoggerService.logInfo(`🚀 Serverul rulează pe portul ${PORT}`);
+  const server = app.listen(PORT, () => {
+    LoggerService.logInfo(`🚀 Server running on port ${PORT}`);
   });
+
+  /**
+   * ✅ Gestionare shutdown controlat
+   */
+  const gracefulShutdown = () => {
+    LoggerService.logInfo("⚠️ Shutting down server...");
+
+    server.close(() => {
+      LoggerService.logInfo("✅ Server closed.");
+      process.exit(0);
+    });
+  };
+
+  process.on("SIGINT", gracefulShutdown);
+  process.on("SIGTERM", gracefulShutdown);
 } catch (error) {
   LoggerService.logError("❌ Fatal error on startup:", error);
   process.exit(1); // Închidem aplicația în caz de eroare critică

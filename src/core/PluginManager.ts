@@ -7,6 +7,7 @@ const PLUGINS_FILE = path.join(__dirname, '../config/plugins.json');
 
 class PluginManager {
   private static plugins: Record<string, boolean> = PluginManager.loadPlugins();
+  private static cacheActiveModules: string[] | null = null; // 🔹 Adăugat caching
 
   /**
    * ✅ Încarcă modulele din fișier JSON
@@ -27,6 +28,7 @@ class PluginManager {
   private static savePlugins(): void {
     try {
       fs.writeFileSync(PLUGINS_FILE, JSON.stringify(this.plugins, null, 2), 'utf-8');
+      this.cacheActiveModules = null; // 🔹 Resetăm cache-ul la fiecare modificare
     } catch (error) {
       console.error('⚠️ Error saving plugins:', error);
     }
@@ -72,11 +74,22 @@ class PluginManager {
    */
   static reloadModules(): void {
     this.plugins = this.loadPlugins();
+    this.cacheActiveModules = null; // 🔹 Resetăm cache-ul la reload
     console.log('🔄 Plugins reloaded.');
   }
 
   /**
-   * ✅ Obține lista modulelor active/inactive
+   * ✅ Obține lista modulelor active
+   */
+  static getActiveModules(): string[] {
+    if (!this.cacheActiveModules) {
+      this.cacheActiveModules = Object.keys(this.plugins).filter(module => this.plugins[module]);
+    }
+    return this.cacheActiveModules;
+  }
+
+  /**
+   * ✅ Obține lista completă a modulelor
    */
   static getModules(): Record<string, boolean> {
     return this.plugins;

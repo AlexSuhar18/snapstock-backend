@@ -1,99 +1,111 @@
 import { Request, Response, NextFunction } from "express";
 import { ValidationService } from "../services/ValidationService";
 import LoggerService from "../services/LoggerService";
+import EventService from "../services/EventService";
+import { EventTypes } from "../events/EventTypes";
 
 class ValidationController {
   /**
-   * ✅ Validează o parolă
+   * ✅ Validează o parolă și emite evenimentul PASSWORD_VALIDATED
    */
-  static async validatePassword(req: Request, res: Response, next: NextFunction): Promise<void> {
+  static async validatePassword(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
       const { password } = req.body;
 
       if (!password) {
-        res.status(400).json({ message: "❌ Password is required." });
-        return;
+        return res.status(400).json({ success: false, message: "❌ Password is required." });
       }
 
       if (ValidationService.isCommonPassword(password)) {
-        res.status(400).json({ message: "❌ Password is too common and insecure." });
-        return;
+        return res.status(400).json({ success: false, message: "❌ Password is too common and insecure." });
       }
 
       const isValid = await ValidationService.isStrongPassword(password);
-      res.status(isValid ? 200 : 400).json({
+
+      // 🔥 Emitere eveniment PASSWORD_VALIDATED cu fallback
+      try {
+        await EventService.emitEvent(EventTypes.PASSWORD_VALIDATED, { password, isStrong: isValid });
+      } catch (eventError) {
+        LoggerService.logError("⚠️ Error emitting PASSWORD_VALIDATED event", eventError);
+      }
+
+      return res.status(isValid ? 200 : 400).json({
+        success: isValid,
         message: isValid ? "✅ Password is valid." : "❌ Password is not strong enough.",
       });
     } catch (error) {
-      LoggerService.logError("❌ Error validating password.", error);
-      next(error);
+      await next(error);
     }
   }
 
   /**
-   * ✅ Verifică dacă o parolă este comună
+   * ✅ Validează un email și emite evenimentul EMAIL_VALIDATED
    */
-  static async checkCommonPassword(req: Request, res: Response, next: NextFunction): Promise<void> {
+  static async validateEmail(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const { password } = req.body;
+      const { email } = req.body;
 
-      if (!password) {
-        res.status(400).json({ message: "❌ Password is required." });
-        return;
+      if (!email) {
+        return res.status(400).json({ success: false, message: "❌ Email is required." });
       }
 
-      const isCommon = ValidationService.isCommonPassword(password);
-      res.status(isCommon ? 400 : 200).json({
-        message: isCommon ? "⚠️ Password is too common and insecure." : "✅ Password is unique.",
-      });
-    } catch (error) {
-      LoggerService.logError("❌ Error checking common password.", error);
-      next(error);
-    }
-  }
+      const isValid = await ValidationService.isValidEmail(email);
 
-  /**
-   * ✅ Validează un email
-   */
-  static async validateEmail(req: Request, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const isValid = await ValidationService.isValidEmail(req.body.email);
-      res.status(isValid ? 200 : 400).json({
+      // 🔥 Emitere eveniment EMAIL_VALIDATED cu fallback
+      try {
+        await EventService.emitEvent(EventTypes.EMAIL_VALIDATED, { email, isValid });
+      } catch (eventError) {
+        LoggerService.logError("⚠️ Error emitting EMAIL_VALIDATED event", eventError);
+      }
+
+      return res.status(isValid ? 200 : 400).json({
+        success: isValid,
         message: isValid ? "✅ Email is valid." : "❌ Invalid email format.",
       });
     } catch (error) {
-      LoggerService.logError("❌ Error validating email.", error);
-      next(error);
+      await next(error);
     }
   }
 
   /**
-   * ✅ Validează un domeniu web
+   * ✅ Validează un domeniu
    */
-  static async validateDomain(req: Request, res: Response, next: NextFunction): Promise<void> {
+  static async validateDomain(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const isAllowed = await ValidationService.isAllowedDomain(req.body.email);
-      res.status(isAllowed ? 200 : 400).json({
+      const { email } = req.body;
+
+      if (!email) {
+        return res.status(400).json({ success: false, message: "❌ Email is required to validate domain." });
+      }
+
+      const isAllowed = await ValidationService.isAllowedDomain(email);
+      return res.status(isAllowed ? 200 : 400).json({
+        success: isAllowed,
         message: isAllowed ? "✅ Domain is valid." : "❌ Domain is not allowed.",
       });
     } catch (error) {
-      LoggerService.logError("❌ Error validating domain.", error);
-      next(error);
+      await next(error);
     }
   }
 
   /**
-   * ✅ Verifică dacă un email există deja în sistem (email duplicat)
+   * ✅ Verifică dacă un email există deja în sistem
    */
-  static async checkDuplicateEmail(req: Request, res: Response, next: NextFunction): Promise<void> {
+  static async checkDuplicateEmail(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
     try {
-      const isDuplicate = await ValidationService.isDuplicateEmail(req.body.email, []);
-      res.status(isDuplicate ? 409 : 200).json({
+      const { email } = req.body;
+
+      if (!email) {
+        return res.status(400).json({ success: false, message: "❌ Email is required to check duplicates." });
+      }
+
+      const isDuplicate = await ValidationService.isDuplicateEmail(email, []);
+      return res.status(isDuplicate ? 409 : 200).json({
+        success: !isDuplicate,
         message: isDuplicate ? "⚠️ Email is already in use." : "✅ Email is available.",
       });
     } catch (error) {
-      LoggerService.logError("❌ Error checking duplicate email.", error);
-      next(error);
+      await next(error);
     }
   }
 }

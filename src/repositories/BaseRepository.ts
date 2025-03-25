@@ -23,26 +23,55 @@ abstract class BaseRepository<T> {
     return await this.db.getAllDocuments(this.collectionName);
   }
 
+    /**
+   * ✅ Obține toate documentele care conțin o anumită valoare pentru un câmp specific
+   */
+    async getAllByField(field: string, value: any): Promise<T[]> {
+      ModuleMiddleware.ensureModuleActive(this.collectionName);
+  
+      if (!field || typeof field !== "string") {
+        throw new Error("Invalid field name provided.");
+      }
+  
+      const allDocuments = await this.getAll();
+  
+      return allDocuments.filter((doc: any) => doc[field] === value);
+    }  
+
   async getByField(field: string, value: any): Promise<T | null> {
     ModuleMiddleware.ensureModuleActive(this.collectionName);
+    if (!field || typeof field !== "string") {
+      throw new Error("Invalid field name provided.");
+    }
     const document = await this.db.getSingleDocumentByField(this.collectionName, field, value);
     return document as T | null;
   }
 
   async create(data: T): Promise<T> {
     ModuleMiddleware.ensureModuleActive(this.collectionName);
+    
+    // 🔹 Verifică dacă documentul există deja pentru a evita duplicatele
+    const existingDocument = await this.getByField("id", (data as any).id);
+    if (existingDocument) {
+      throw new Error("A document with this ID already exists.");
+    }
+
     const id = this.db.generateId(this.collectionName);
     const newData = { ...(data as any), id };
 
     await this.db.createDocument(this.collectionName, id, newData);
     await EventService.emitEvent(`${this.collectionName.toUpperCase()}_CREATED` as EventTypes, { id, ...(newData as any) });
 
-    return await this.getById(id);  // 🔹 Returnează documentul complet după inserare
+    return await this.getById(id); // 🔹 Returnează documentul complet după inserare
   }
 
   async update(id: string, data: Partial<T>): Promise<T> {
     ModuleMiddleware.ensureModuleActive(this.collectionName);
-    await this.getById(id);  // 🔹 Verifică dacă documentul există înainte de update
+    await this.getById(id); // 🔹 Verifică dacă documentul există înainte de update
+
+    if (!data || typeof data !== "object") {
+      throw new Error("Invalid data for update.");
+    }
 
     await this.db.updateDocument(this.collectionName, id, data);
     const updatedDoc = await this.getById(id);
@@ -63,6 +92,12 @@ abstract class BaseRepository<T> {
 
   async deleteMultiple(ids: string[]): Promise<T[]> {
     ModuleMiddleware.ensureModuleActive(this.collectionName);
+    
+    // 🔹 Verifică dacă lista de ID-uri este goală
+    if (!Array.isArray(ids) || ids.length === 0) {
+      throw new Error("IDs list cannot be empty.");
+    }
+
     const deletedDocuments: T[] = [];
 
     for (const id of ids) {

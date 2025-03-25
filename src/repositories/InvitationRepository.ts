@@ -2,6 +2,9 @@ import { IInvitationRepository } from "../Interfaces/IInvitationRepository";
 import { Invitation } from "../models/invitationModel";
 import BaseRepository from "./BaseRepository";
 import * as crypto from "crypto";
+import EventService from "../services/EventService";
+import { EventTypes } from "../events/EventTypes";
+import LoggerService from "../services/LoggerService";
 
 class FirestoreInvitationRepository
   extends BaseRepository<Invitation>
@@ -20,6 +23,9 @@ class FirestoreInvitationRepository
   }
 
   async getByEmail(email: string): Promise<Invitation | null> {
+    if (!email || typeof email !== "string" || !email.includes("@")) {
+      throw new Error("Invalid email address.");
+    }
     const result = await this.getByField("email", email);
     return result && result.status === "pending" ? result : null;
   }
@@ -42,16 +48,28 @@ class FirestoreInvitationRepository
     if (!invitation) {
       throw new Error(`Invitation with ID ${id} not found.`);
     }
-
     await super.delete(id);
     return invitation;
   }
 
   async markAccepted(token: string): Promise<Invitation> {
-    return await this.update(token, {
+    const invitation = await this.getByToken(token);
+    if (!invitation) {
+      throw new Error(`Invitation with token ${token} not found.`);
+    }
+
+    const updatedInvitation = await this.update(token, {
       status: "accepted",
       acceptedAt: new Date().toISOString(),
     });
+
+    try {
+      await EventService.emitEvent(EventTypes.INVITATION_ACCEPTED, { email: invitation.email, inviteId: invitation.id  });
+    } catch (error) {
+      LoggerService.logError(`❌ Failed to emit INVITATION_ACCEPTED event: ${error}`);
+    }
+
+    return updatedInvitation;
   }
 
   async markRevoked(token: string): Promise<Invitation> {

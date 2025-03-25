@@ -1,19 +1,55 @@
 import express from "express";
 import LoggingMiddleware from "../middlewares/loggingMiddleware";
-import RateLimitConfig from "./RateLimiter";
+import { inviteLimiter, generalLimiter } from "./RateLimiter"; // Import corect
 import corsConfig from "./CorsConfig";
 import helmetConfig from "./HelmetConfig";
+import LoggerService from "../services/LoggerService";
+import dotenv from "dotenv";
 
+dotenv.config();
+
+/**
+ * ✅ Middleware-urile disponibile și activabile din .env
+ */
+const middlewareConfig = {
+  cors: process.env.ENABLE_CORS === "true",
+  rateLimit: process.env.ENABLE_RATE_LIMIT === "true",
+  logging: process.env.ENABLE_LOGGING === "true",
+  jsonParser: process.env.ENABLE_JSON_PARSER === "true",
+};
+
+/**
+ * ✅ Configurează middleware-urile Express
+ */
 export default function configureMiddleware(app: express.Application) {
-    app.use(helmetConfig); // 🔹 Securitate HTTP Headers
-    app.use(corsConfig); // 🔹 Configurare CORS
+  LoggerService.logInfo("🚀 Initializing middleware...");
 
-    app.use(LoggingMiddleware.requestLogger); // 🔹 Middleware pentru logare request-uri
+  if (middlewareConfig.cors) {
+    app.use(corsConfig);
+    LoggerService.logInfo("✅ CORS middleware enabled.");
+  }
 
-    // 🔹 Limitare rată pentru invitații și API în general
-    app.use("/api/users", RateLimitConfig.inviteLimiter);
-    app.use(RateLimitConfig.generalLimiter);
+  app.use(helmetConfig);
+  LoggerService.logInfo("✅ Helmet middleware enabled for security headers.");
 
-    app.use(express.json()); // 🔹 Middleware pentru JSON handling
-    app.use(LoggingMiddleware.errorLogger); // 🔹 Middleware pentru gestionarea erorilor
+  if (middlewareConfig.logging) {
+    app.use(LoggingMiddleware.requestLogger);
+    LoggerService.logInfo("✅ Logging middleware enabled.");
+  }
+
+  if (middlewareConfig.rateLimit) {
+    app.use("/api/users", inviteLimiter);
+    app.use(generalLimiter);
+    LoggerService.logInfo("✅ Rate limiter middleware enabled (using express-rate-limit).");
+  }
+
+  if (middlewareConfig.jsonParser) {
+    app.use(express.json());
+    LoggerService.logInfo("✅ JSON parser middleware enabled.");
+  }
+
+  app.use(LoggingMiddleware.errorLogger);
+  LoggerService.logInfo("✅ Error logging middleware enabled.");
+
+  LoggerService.logInfo("🚀 Middleware initialized successfully.");
 }

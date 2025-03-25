@@ -1,91 +1,192 @@
 import EventService from "../services/EventService";
 import { EventTypes } from "../events/EventTypes";
 import LoggerService from "../services/LoggerService";
+import { NotFoundError, BadRequestError } from "../errors/CustomErrors";
+import { Notification } from "../models/notification";
+import NotificationRepository, { NotificationRepository as NotificationRepoClass } from "../repositories/NotificationRepository";
 
 class NotificationService {
   /**
-   * ✅ Trimite o invitație și emite un eveniment
+   * ✅ Creează o notificare nouă
    */
-  static async sendInvitation(data: any): Promise<{ success: boolean; message: string; data?: any }> {
+  static async createNotification(data: Partial<Notification>): Promise<{ success: boolean; message: string; data?: Notification }> {
     try {
-      if (!data.email || !data.inviteId) {
-        return { success: false, message: "Missing required parameters: email or inviteId" };
+      // 🔍 Validare input
+      if (!data.userId || !data.message || !data.recipient) {
+        return { success: false, message: "❌ Missing required fields: userId, message, or recipient." };
       }
 
-      // 🔹 Construim obiectul invitației
-      const invitation = {
-        email: data.email,
-        inviteId: data.inviteId,
-        inviteMethod: data.inviteMethod || "email",
-        phoneNumber: data.phoneNumber || "",
-        role: data.role || "guest",
-        invitedBy: data.invitedBy || "system",
-        status: data.status || "pending",
-        createdAt: new Date().toISOString(),
-      };
-
-      // 🔥 Emitere eveniment în mod securizat
-      await EventService.emitEvent(EventTypes.INVITATION_CREATED, { email: invitation.email, inviteId: invitation.inviteId })
-        .catch(error => LoggerService.logError("❌ Error emitting invitation event", error));
-
-      return { success: true, message: "Invitation processed successfully", data: invitation };
-    } catch (error) {
-      LoggerService.logError("❌ Error processing invitation", error);
-      return { success: false, message: "Error processing invitation" };
-    }
-  }
-
-  /**
-   * ✅ Trimite o notificare administratorului
-   */
-  static async notifyAdmin(data: any): Promise<{ success: boolean; message: string; data?: any }> {
-    try {
-      if (!data.email || !data.invitedBy || !data.message) {
-        return { success: false, message: "Missing required parameters: email, invitedBy, or message" };
+      if (!["pending", "sent", "failed"].includes(data.status ?? "")) {
+        return { success: false, message: "❌ Invalid status value." };
       }
 
-      // 🔹 Construim obiectul notificării
-      const notification = {
-        email: data.email,
-        invitedBy: data.invitedBy,
+      // 📌 Creăm notificarea folosind modelul `Notification`
+      const notification = new Notification({
+        id: data.id ?? NotificationRepoClass.generateId(),
+        userId: data.userId,
+        recipient: data.recipient,
+        type: data.type ?? "email",
         message: data.message,
-        priority: data.priority || "normal",
-      };
+        status: data.status ?? "pending",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        sentAt: data.sentAt ?? null,
+        errorMessage: data.errorMessage ?? null,
+        read: data.read ?? false,
+      });
 
-      // 🔥 Emitere eveniment în mod securizat
-      await EventService.emitEvent(EventTypes.ADMIN_NOTIFICATION, { message: notification.message, priority: notification.priority })
-        .catch(error => LoggerService.logError("❌ Error emitting admin notification event", error));
+      // 📥 Salvăm notificarea în repository
+      const newNotification = await NotificationRepository.create(notification);
 
-      return { success: true, message: "Admin notification sent successfully", data: notification };
+      // 🔥 Emitere eveniment
+      try {
+        await EventService.emitEvent(EventTypes.NOTIFICATION_SENT, {
+          email: notification.recipient,
+          type: notification.type,
+          content: notification.message,
+        });
+      } catch (eventError) {
+        LoggerService.logError("⚠️ Error emitting NOTIFICATION_SENT event", eventError);
+      }
+
+      LoggerService.logInfo(`📩 Notification created for user: ${notification.userId}`);
+
+      return { success: true, message: "✅ Notification created successfully", data: newNotification };
     } catch (error) {
-      LoggerService.logError("❌ Error sending admin notification", error);
-      return { success: false, message: "Error sending admin notification" };
+      LoggerService.logError("❌ Error creating notification", error);
+      return { success: false, message: "❌ Error creating notification" };
     }
   }
 
   /**
-   * ✅ Trimite un reminder prin email
+   * ✅ Obține o notificare după ID
    */
-  static async sendReminderEmail(data: any): Promise<{ success: boolean; message: string; data?: any }> {
+  static async getNotificationById(notificationId: string) {
+    if (!notificationId) {
+      throw new BadRequestError("❌ Notification ID is required.");
+    }
+
+    const notification = await NotificationRepository.getById(notificationId);
+    if (!notification) {
+      throw new NotFoundError(`❌ Notification with ID ${notificationId} not found.`);
+    }
+    return notification;
+  }
+
+  /**
+   * ✅ Marchează o notificare ca citită
+   */
+  static async markAsRead(notificationId: string) {
     try {
-      if (!data.email || !data.inviteId) {
-        return { success: false, message: "Missing required parameters: email or inviteId" };
+      if (!notificationId) {
+        throw new BadRequestError("❌ Notification ID is required.");
       }
 
-      // 🔹 Construim detaliile reminder-ului
-      const reminder = {
-        email: data.email,
-        inviteId: data.inviteId,
-      };
+      const notification = await this.getNotificationById(notificationId);
 
-      // 🔥 Emitere eveniment în mod securizat
-      await EventService.emitEvent(EventTypes.INVITATION_REMINDER_SENT, { email: reminder.email, inviteId: reminder.inviteId })
-        .catch(error => LoggerService.logError("❌ Error emitting reminder email event", error));
+      const updatedNotification = await this.updateNotification(notificationId, { read: true });
 
-      return { success: true, message: "Reminder email sent successfully", data: reminder };
+      // 🔥 Emitere eveniment protejat
+      try {
+        await EventService.emitEvent(EventTypes.NOTIFICATION_READ, { id: notificationId });
+      } catch (eventError) {
+        LoggerService.logError("⚠️ Error emitting NOTIFICATION_READ event", eventError);
+      }
+
+      LoggerService.logInfo(`📖 Notification marked as read: ${notificationId}`);
+      return { success: true, message: "✅ Notification marked as read", data: updatedNotification };
     } catch (error) {
-      LoggerService.logError("❌ Error sending reminder email", error);
-      return { success: false, message: "Error sending reminder email" };
+      LoggerService.logError("❌ Error marking notification as read", error);
+      throw error;
+    }
+  }
+
+  /**
+   * ✅ Șterge o notificare
+   */
+  static async deleteNotification(notificationId: string) {
+    try {
+      if (!notificationId) {
+        throw new BadRequestError("❌ Notification ID is required.");
+      }
+
+      const notification = await this.getNotificationById(notificationId);
+
+      await NotificationRepository.delete(notificationId);
+
+      // 🔥 Emitere eveniment protejat
+      try {
+        await EventService.emitEvent(EventTypes.NOTIFICATION_DELETED, { id: notificationId });
+      } catch (eventError) {
+        LoggerService.logError("⚠️ Error emitting NOTIFICATION_DELETED event", eventError);
+      }
+
+      LoggerService.logInfo(`🗑️ Notification deleted: ${notificationId}`);
+      return { success: true, message: "✅ Notification deleted successfully", id: notificationId };
+    } catch (error) {
+      LoggerService.logError("❌ Error deleting notification", error);
+      throw error;
+    }
+  }
+
+  /**
+   * ✅ Obține notificările unui utilizator
+   */
+  static async getUserNotifications(userId: string): Promise<{ success: boolean; message: string; data?: any }> {
+    try {
+      if (!userId || typeof userId !== "string") {
+        return { success: false, message: "❌ Invalid userId provided." };
+      }
+
+      const notifications = await NotificationRepository.getByUserId(userId);
+
+      if (!notifications || notifications.length === 0) {
+        return { success: false, message: `ℹ️ No notifications found for user: ${userId}` };
+      }
+
+      // 🔥 Emitere eveniment protejat
+      try {
+        await EventService.emitEvent(EventTypes.NOTIFICATION_READ, { id: userId });
+      } catch (eventError) {
+        LoggerService.logError("⚠️ Error emitting NOTIFICATION_READ event", eventError);
+      }
+
+      LoggerService.logInfo(`📨 Notifications retrieved for user: ${userId}`);
+      return { success: true, message: "✅ Notifications retrieved successfully", data: notifications };
+    } catch (error) {
+      LoggerService.logError("❌ Error retrieving notifications", error);
+      return { success: false, message: "❌ Error retrieving notifications" };
+    }
+  }
+
+  /**
+   * ✅ Actualizează notificarea și setează `updatedAt`
+   */
+  static async updateNotification(notificationId: string, data: Partial<Notification>) {
+    const updatedData = { ...data, updatedAt: new Date().toISOString() };
+    return await NotificationRepository.update(notificationId, updatedData);
+  }
+
+  /**
+   * ✅ Șterge notificările expirate
+   */
+  static async deleteExpiredNotifications(): Promise<void> {
+    try {
+      const notifications = await NotificationRepository.getAll();
+      const expiredNotifications = notifications.filter(n => new Date(n.createdAt) < new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
+
+      if (expiredNotifications.length === 0) {
+        LoggerService.logInfo("✅ No expired notifications to delete.");
+        return;
+      }
+
+      const expiredIds = expiredNotifications.map(n => n.id);
+      await NotificationRepository.deleteMultiple(expiredIds);
+
+      LoggerService.logInfo(`🗑️ Deleted ${expiredNotifications.length} expired notifications.`);
+    } catch (error) {
+      LoggerService.logError("❌ Error deleting expired notifications", error);
+      throw error;
     }
   }
 }
